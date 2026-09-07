@@ -21,6 +21,33 @@ type Cidr = {
   ip: string; prefix: number; network: string; broadcast: string; first: string;
   last: string; mask: string; wildcard: string; hosts: number; total: number; blockSize: number;
 };
+type SubnetMode = 'prefix' | 'subnets' | 'hosts';
+type SubnetRow = Cidr & { number: number };
+type SubnetPlan = {
+  base: Cidr;
+  targetPrefix: number;
+  generated: number;
+  increment: number;
+  rows: SubnetRow[];
+};
+type IpRange = {
+  source: string;
+  start: number;
+  end: number;
+  startIp: string;
+  endIp: string;
+  cidr: string;
+  mask: string;
+  total: number;
+};
+type RangeRelation = {
+  a: IpRange;
+  b: IpRange;
+  status: 'No Overlap' | 'Touching Ranges' | 'Partial Overlap' | 'Range A Contains Range B' | 'Range B Contains Range A' | 'Identical Ranges';
+  explanation: string;
+  overlapStart: number | null;
+  overlapEnd: number | null;
+};
 
 const initialNotes: Note[] = [];
 
@@ -154,6 +181,100 @@ function calculateCidr(ip: string, prefix: number): Cidr | null {
     last: prefix === 32 ? formatIp(network) : prefix === 31 ? formatIp(broadcast) : formatIp(broadcast - 1),
     mask: formatIp(mask), wildcard: formatIp((~mask) >>> 0), hosts, total, blockSize: total,
   };
+}
+
+function parseNetworkInput(value: string, fallbackPrefix: number): Cidr | null {
+  const parts = value.trim().split('/');
+  if (parts.length > 2 || !parts[0]) return null;
+  const prefix = parts.length === 2 ? Number(parts[1]) : fallbackPrefix;
+  return Number.isInteger(prefix) ? calculateCidr(parts[0], prefix) : null;
+}
+
+function buildSubnetPlan(input: string, originalPrefix: number, mode: SubnetMode, targetValue: number): { plan: SubnetPlan | null; error?: string } {
+  const base = parseNetworkInput(input, originalPrefix);
+  if (!base) return { plan: null, error: 'Enter a valid IPv4 address and an original prefix from /0 through /32.' };
+  if (!Number.isInteger(targetValue) || targetValue <= 0) return { plan: null, error: 'Enter a positive whole number for the selected subnetting target.' };
+
+  let targetPrefix = targetValue;
+  if (mode === 'prefix') {
+    if (targetPrefix < base.prefix || targetPrefix > 32) return { plan: null, error: `The target prefix must be between /${base.prefix} and /32.` };
+  } else if (mode === 'subnets') {
+    const maxSubnets = 2 ** (32 - base.prefix);
+    if (targetValue > maxSubnets || (targetValue & (targetValue - 1)) !== 0) return { plan: null, error: 'The subnet count must be a power of two within the original network.' };
+    targetPrefix = base.prefix + Math.log2(targetValue);
+  } else {
+    const maxHosts = base.prefix === 31 ? 2 : base.prefix === 32 ? 0 : (2 ** (32 - base.prefix)) - 2;
+    if (targetValue > maxHosts) return { plan: null, error: `This network cannot provide ${targetValue.toLocaleString()} usable hosts.` };
+    targetPrefix = -1;
+    for (let prefix = base.prefix; prefix <= 32; prefix += 1) {
+      const hosts = prefix === 31 ? 2 : prefix === 32 ? 0 : Math.max(0, (2 ** (32 - prefix)) - 2);
+      if (hosts >= targetValue) {
+        targetPrefix = prefix;
+        break;
+      }
+    }
+    if (targetPrefix < 0) return { plan: null, error: 'No valid IPv4 prefix can satisfy that host requirement.' };
+  }
+
+  const generated = 2 ** (targetPrefix - base.prefix);
+  const increment = 2 ** (32 - targetPrefix);
+  if (generated > 4096) return { plan: null, error: `That request would generate ${generated.toLocaleString()} rows. Choose a smaller subnet count or a less specific target prefix (maximum 4,096 rows).` };
+
+  const baseNumber = parseIp(base.network) as number;
+  const rows: SubnetRow[] = [];
+  for (let index = 0; index < generated; index += 1) {
+    const row = calculateCidr(formatIp(baseNumber + (index * increment)), targetPrefix);
+    if (row) rows.push({ ...row, number: index + 1 });
+  }
+  return { plan: { base, targetPrefix, generated, increment, rows } };
+}
+
+function parseRangeValue(value: string): { range: IpRange | null; error?: string } {
+  const source = value.trim();
+  if (!source) return { range: null, error: 'Enter an IPv4 address, CIDR network, or start-end range.' };
+  if (source.includes('/')) {
+    const parts = source.split('/');
+    if (parts.length !== 2 || !/^\d+$/.test(parts[1])) return { range: null, error: `"${source}" has an invalid CIDR prefix.` };
+    const cidr = calculateCidr(parts[0], Number(parts[1]));
+    if (!cidr) return { range: null, error: `"${source}" is not a valid IPv4 network.` };
+    const start = parseIp(cidr.network) as number;
+    const end = parseIp(cidr.broadcast) as number;
+    return { range: { source, start, end, startIp: cidr.network, endIp: cidr.broadcast, cidr: `${cidr.network}/${cidr.prefix}`, mask: cidr.mask, total: cidr.total } };
+  }
+
+  const rangeParts = source.split(/\s*(?:\.\.|-)\s*/);
+  if (rangeParts.length === 2) {
+    const start = parseIp(rangeParts[0]);
+    const end = parseIp(rangeParts[1]);
+    if (start === null || end === null) return { range: null, error: `"${source}" contains an invalid IPv4 address.` };
+    if (end < start) return { range: null, error: `"${source}" is reversed. The end address must be after the start address.` };
+    return { range: { source, start, end, startIp: formatIp(start), endIp: formatIp(end), cidr: '—', mask: '—', total: end - start + 1 } };
+  }
+
+  const parsed = parseIp(source);
+  if (parsed === null) return { range: null, error: `"${source}" is not a valid IPv4 address, CIDR network, or range.` };
+  return { range: { source, start: parsed, end: parsed, startIp: source, endIp: source, cidr: `${source}/32`, mask: '255.255.255.255', total: 1 } };
+}
+
+function compareRanges(a: IpRange, b: IpRange): RangeRelation {
+  const overlapStart = Math.max(a.start, b.start);
+  const overlapEnd = Math.min(a.end, b.end);
+  if (a.start === b.start && a.end === b.end) return { a, b, status: 'Identical Ranges', explanation: 'Both inputs normalize to the same address range.', overlapStart, overlapEnd };
+  if (a.start <= b.start && a.end >= b.end) return { a, b, status: 'Range A Contains Range B', explanation: 'Every address in range B is contained by range A.', overlapStart, overlapEnd };
+  if (b.start <= a.start && b.end >= a.end) return { a, b, status: 'Range B Contains Range A', explanation: 'Every address in range A is contained by range B.', overlapStart, overlapEnd };
+  if (overlapStart <= overlapEnd) return { a, b, status: 'Partial Overlap', explanation: 'The ranges share a contiguous subset of addresses.', overlapStart, overlapEnd };
+  if (a.end + 1 === b.start || b.end + 1 === a.start) return { a, b, status: 'Touching Ranges', explanation: 'The ranges are adjacent with no shared address.', overlapStart: null, overlapEnd: null };
+  return { a, b, status: 'No Overlap', explanation: 'The ranges are separate and have no adjacent boundary.', overlapStart: null, overlapEnd: null };
+}
+
+function downloadText(fileName: string, text: string, type: string) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function binaryIp(ip: string): string {
@@ -376,64 +497,69 @@ function RefinedDashboard() {
 }
 
 function CidrPage() {
-  const [ip, setIp] = useState('192.168.10.0');
-  const [prefix, setPrefix] = useState('24');
-  const [result, setResult] = useState<Cidr | null>(() => calculateCidr('192.168.10.0', 24));
-  const run = () => setResult(calculateCidr(ip, Number(prefix)));
-  const invalid = !result;
-  const addressBinary = result ? binaryIp(result.network) : '';
-  const maskBinary = result ? binaryIp(result.mask) : '';
-  const wildcardBinary = result ? binaryIp(result.wildcard) : '';
-  const className = result?.prefix !== undefined && result.prefix <= 7 ? 'Class A Network' : result?.prefix !== undefined && result.prefix <= 15 ? 'Class B Network' : 'Class C Network';
-  return <><PageHeader compact eyebrow="Network / 01" title="CIDR Calculator" description="Calculate network details, host range, broadcast address and more." action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">IPv4 / CIDR</span>} />
+  const [baseInput, setBaseInput] = useState('192.168.10.0');
+  const [originalPrefix, setOriginalPrefix] = useState('24');
+  const [mode, setMode] = useState<SubnetMode>('prefix');
+  const [targetValue, setTargetValue] = useState('26');
+  const [plan, setPlan] = useState<SubnetPlan | null>(() => buildSubnetPlan('192.168.10.0', 24, 'prefix', 26).plan);
+  const [error, setError] = useState('');
+  const [sortKey, setSortKey] = useState<keyof SubnetRow>('number');
+  const [ascending, setAscending] = useState(true);
+  const run = () => {
+    const result = buildSubnetPlan(baseInput, Number(originalPrefix), mode, Number(targetValue));
+    setPlan(result.plan);
+    setError(result.error ?? '');
+  };
+  const sortedRows = useMemo(() => {
+    if (!plan) return [];
+    return [...plan.rows].sort((a, b) => {
+      const left = a[sortKey];
+      const right = b[sortKey];
+      const comparison = typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true });
+      return ascending ? comparison : -comparison;
+    });
+  }, [ascending, plan, sortKey]);
+  const rowText = (row: SubnetRow) => `${row.number}\t${row.network}/${row.prefix}\t${row.first}\t${row.last}\t${row.broadcast}\t${row.mask}\t${row.hosts}`;
+  const tableText = plan ? [['Subnet', 'CIDR', 'First usable', 'Last usable', 'Broadcast', 'Subnet mask', 'Usable hosts'], ...plan.rows.map((row) => rowText(row).split('\t'))].map((row) => row.join('\t')).join('\n') : '';
+  const modeLabel = mode === 'prefix' ? 'Target subnet prefix' : mode === 'subnets' ? 'Number of subnets' : 'Usable hosts per subnet';
+  const className = plan?.base.prefix !== undefined && plan.base.prefix <= 7 ? 'Class A Network' : plan?.base.prefix !== undefined && plan.base.prefix <= 15 ? 'Class B Network' : 'Class C Network';
+  return <><PageHeader compact eyebrow="Network / 01" title="CIDR Calculator" description="Split an IPv4 network into precise, copy-ready subnets." action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">IPv4 / CIDR</span>} />
     <section className="mb-3 rounded-md border border-border bg-card p-3 md:p-4">
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_150px_auto] md:items-end">
-        <Field label="Network Address" value={ip} onChange={setIp} placeholder="192.168.10.0" />
-        <Field label="CIDR Prefix" value={prefix} onChange={setPrefix} type="number" min={0} max={32} />
-        <Button onClick={run} className="h-10 min-w-[105px]" data-testid="button-calculate-cidr"><Calculator size={13} /> Calculate</Button>
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1.25fr)_115px_175px_auto] md:items-end">
+        <Field label="Base IPv4 network or address" value={baseInput} onChange={setBaseInput} placeholder="192.168.10.0 or 192.168.10.0/24" />
+        <Field label="Original prefix" value={originalPrefix} onChange={setOriginalPrefix} type="number" min={0} max={32} />
+        <label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Split by</span><select value={mode} onChange={(event) => setMode(event.target.value as SubnetMode)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-xs text-foreground outline-none focus:border-primary"><option value="prefix">Target prefix</option><option value="subnets">Number of subnets</option><option value="hosts">Usable hosts</option></select></label>
+        <Field label={modeLabel} value={targetValue} onChange={setTargetValue} type="number" min={1} max={32} className="md:col-start-3 md:row-start-2" />
+        <Button onClick={run} className="h-10 min-w-[105px] md:col-start-4 md:row-start-2" data-testid="button-calculate-cidr"><Calculator size={13} /> Calculate</Button>
       </div>
-      {invalid && <div className="mt-2 text-[11px] text-destructive">Enter a valid IPv4 address and a prefix between 0 and 32.</div>}
+      {error && <div className="mt-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive" role="alert">{error}</div>}
     </section>
-    {result ? <div className="space-y-3">
+    {plan ? <div className="space-y-3">
       <section className="rounded-md border border-border bg-card p-3 md:p-4">
-        <SectionTitle detail={`${result.network}/${result.prefix}`}>Network Details</SectionTitle>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_180px]">
-          <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-            {[
-              ['Network Address', `${result.network}/${result.prefix}`],
-              ['Broadcast Address', result.broadcast],
-              ['First Usable Host', result.prefix === 31 ? `${result.first} · endpoint` : result.first],
-              ['Last Usable Host', result.prefix === 31 ? `${result.last} · endpoint` : result.last],
-              ['Subnet Mask', result.mask],
-              ['Wildcard Mask', result.wildcard],
-              ['Total Hosts', result.total.toLocaleString()],
-              ['Usable Hosts', result.hosts.toLocaleString()],
-            ].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-border/70 py-1.5 last:border-0 sm:block"><span className="text-[10px] text-muted-foreground">{label}</span><span className="font-mono text-[11px] text-slate-200">{value}</span></div>)}
-          </div>
-          <div className="flex flex-col items-center justify-center border-t border-border pt-4 lg:border-l lg:border-t-0 lg:pt-0">
-            <div className="relative flex h-[76px] w-[76px] items-center justify-center rounded-full border-2 border-primary bg-primary/5 font-mono text-xl text-slate-100 shadow-[0_0_0_5px_rgba(42,130,255,.08)]">/{result.prefix}</div>
-            <div className="mt-2 text-[10px] font-semibold text-slate-200">{className}</div>
-            <div className="mt-0.5 font-mono text-[9px] text-muted-foreground">{result.mask}</div>
-            <div className="mt-4 h-1.5 w-full max-w-[140px] overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(8, Math.min(100, (result.hosts / Math.max(result.total, 1)) * 100))}%` }} /></div>
-            <div className="mt-1 flex items-center gap-1 font-mono text-[9px] text-accent"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{result.hosts.toLocaleString()} usable hosts</div>
-          </div>
+        <div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${plan.base.network}/${plan.base.prefix}`}>Subnet Plan</SectionTitle><span className="font-mono text-[10px] text-muted-foreground">{plan.generated.toLocaleString()} generated</span></div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ['Original network', `${plan.base.network}/${plan.base.prefix}`],
+            ['Subnet mask', plan.base.mask],
+            ['Wildcard mask', plan.base.wildcard],
+            ['Total addresses', plan.base.total.toLocaleString()],
+            ['Usable hosts', plan.base.hosts.toLocaleString()],
+            ['New prefix', `/${plan.targetPrefix}`],
+            ['Address increment', plan.increment.toLocaleString()],
+            ['Generated subnets', plan.generated.toLocaleString()],
+          ].map(([label, value]) => <div key={label} className="rounded border border-border bg-background/35 p-2.5"><div className="text-[9px] text-muted-foreground">{label}</div><div className="mt-1 break-all font-mono text-[11px] text-foreground">{value}</div></div>)}
+        </div>
+        <div className="mt-4 rounded border border-border bg-background/35 p-3">
+          <div className="mb-2 flex items-center justify-between text-[9px] text-muted-foreground"><span>Address space · {className}</span><span>{plan.base.network} → {plan.base.broadcast}</span></div>
+          <div className="flex h-7 overflow-hidden rounded border border-border bg-secondary" aria-label={`Address space split into ${plan.generated} subnets`}>{plan.rows.slice(0, 64).map((row) => <span key={row.number} title={`Subnet ${row.number}: ${row.network}/${row.prefix}`} className={`h-full border-r border-background/70 ${row.number % 2 === 0 ? 'bg-primary/70' : 'bg-primary/35'}`} style={{ width: `${100 / Math.min(plan.generated, 64)}%` }} />)}</div>
+          {plan.generated > 64 && <p className="mt-2 text-[9px] text-muted-foreground">Showing the first 64 segments visually; the table contains all {plan.generated.toLocaleString()} generated subnets.</p>}
         </div>
       </section>
-      <section className="rounded-md border border-border bg-card p-3 md:p-4">
-        <div className="mb-3 flex items-center justify-between"><SectionTitle>Binary Representation</SectionTitle><CopyButton value={`IP Address (Binary): ${addressBinary}\nSubnet Mask (Binary): ${maskBinary}\nWildcard Mask (Binary): ${wildcardBinary}`} label="Copy All" /></div>
-        <div className="space-y-2">
-          {[['IP Address (Binary)', addressBinary], ['Subnet Mask (Binary)', maskBinary], ['Wildcard Mask (Binary)', wildcardBinary]].map(([label, value]) => <div key={label} className="grid gap-1.5 sm:grid-cols-[145px_1fr] sm:items-center"><span className="pl-1 text-[10px] text-muted-foreground">{label}</span><code className="overflow-x-auto rounded border border-border bg-background/60 px-2 py-1.5 font-mono text-[10px] tracking-wide text-slate-200">{value}</code></div>)}
-        </div>
+      <section className="overflow-hidden rounded-md border border-border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-3 md:px-4"><SectionTitle detail="sortable results">Generated Subnets</SectionTitle><div className="flex gap-1"><CopyButton value={tableText} label="Copy table" /><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => downloadText('netkit-subnets.tsv', tableText, 'text/tab-separated-values')}><Download size={13} />Export</Button></div></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr>{[['number', '#'], ['network', 'Network / CIDR'], ['first', 'First usable'], ['last', 'Last usable'], ['broadcast', 'Broadcast'], ['mask', 'Subnet mask'], ['hosts', 'Usable hosts']].map(([key, label]) => <th key={key} className="px-3 py-2 font-medium"><button type="button" onClick={() => { const nextKey = key as keyof SubnetRow; if (sortKey === nextKey) setAscending((current) => !current); else { setSortKey(nextKey); setAscending(true); } }} className="inline-flex items-center gap-1 hover:text-primary">{label}{sortKey === key && <span>{ascending ? '↑' : '↓'}</span>}</button></th>)}</tr></thead><tbody>{sortedRows.map((row) => <tr key={row.number} className="border-b border-border/70 last:border-0 hover:bg-secondary/35"><td className="px-3 py-2 font-mono text-muted-foreground">{row.number}</td><td className="px-3 py-2 font-mono text-primary">{row.network}/{row.prefix}</td><td className="px-3 py-2 font-mono">{row.first}</td><td className="px-3 py-2 font-mono">{row.last}</td><td className="px-3 py-2 font-mono">{row.broadcast}</td><td className="px-3 py-2 font-mono">{row.mask}</td><td className="px-3 py-2 font-mono text-accent">{row.hosts.toLocaleString()}</td></tr>)}</tbody></table></div>
       </section>
-      <section className="rounded-md border border-border bg-card p-3 md:p-4">
-        <SectionTitle>Quick Reference</SectionTitle>
-        <div className="grid grid-cols-3 divide-x divide-border rounded border border-border bg-background/35">
-          <div className="p-3"><div className="text-[9px] text-muted-foreground">CIDR / Prefix</div><div className="mt-1 font-mono text-xs text-slate-100">/{result.prefix}</div></div>
-          <div className="p-3"><div className="text-[9px] text-muted-foreground">Subnet Mask</div><div className="mt-1 font-mono text-xs text-slate-100">{result.mask}</div></div>
-          <div className="p-3"><div className="text-[9px] text-muted-foreground">Usable Hosts</div><div className="mt-1 font-mono text-xs text-accent">{result.hosts.toLocaleString()}</div></div>
-        </div>
-      </section>
-    </div> : <EmptyState icon={Calculator} title="Waiting for a valid network" text="Enter an IPv4 address and prefix to see the computed boundaries." />}</>;
+    </div> : <EmptyState icon={Calculator} title="Enter a valid subnet plan" text="Choose a target prefix, subnet count, or host requirement to generate deterministic subnet rows." />}</>;
 }
 
 function ResultCard({ label, value, accent = 'default' }: { label: string; value: string; accent?: 'default' | 'cyan' | 'lime' }) {
@@ -512,13 +638,58 @@ function VlanPage() {
 }
 
 function RangePage() {
-  const [start, setStart] = useState('10.0.0.10');
-  const [end, setEnd] = useState('10.0.0.50');
-  const startNum = parseIp(start); const endNum = parseIp(end);
-  const valid = startNum !== null && endNum !== null && endNum >= startNum;
-  const count = valid ? endNum - startNum + 1 : 0;
-  const usable = valid ? Math.max(0, count - (count > 2 ? 2 : 0)) : 0;
-  return <><PageHeader eyebrow="Network math / 04" title="IP range checker" description="Check a contiguous address span, catch reversed inputs and see the usable count before you reserve it." /><div className="grid gap-5 xl:grid-cols-[380px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="range inputs">Address span</SectionTitle><div className="space-y-4"><Field label="Start address" value={start} onChange={setStart} placeholder="10.0.0.10" /><Field label="End address" value={end} onChange={setEnd} placeholder="10.0.0.50" /></div>{startNum !== null && endNum !== null && endNum < startNum && <div className="mt-4 flex gap-2 rounded border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"><X size={14} /> End address must come after start.</div>}</section><section className="grid gap-3 sm:grid-cols-2">{valid ? <><ResultCard label="Total addresses" value={count.toLocaleString()} accent="cyan" /><ResultCard label="Usable host count" value={usable.toLocaleString()} accent="lime" /><ResultCard label="First address" value={start} /><ResultCard label="Last address" value={end} /></> : <div className="sm:col-span-2"><EmptyState icon={SlidersHorizontal} title="Enter a valid address span" text="Both IPv4 inputs must be valid, and the end must not precede the start." /></div>}</section></div></>;
+  const [input, setInput] = useState('10.0.0.0/24\n10.0.0.128/25');
+  const analysis = useMemo(() => {
+    const lines = input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const parsed = lines.map((line) => parseRangeValue(line));
+    const errors = parsed.flatMap((item) => item.error ? [item.error] : []);
+    const ranges = parsed.flatMap((item) => item.range ? [item.range] : []);
+    const comparisons: RangeRelation[] = [];
+    for (let index = 0; index < ranges.length; index += 1) {
+      for (let other = index + 1; other < ranges.length; other += 1) comparisons.push(compareRanges(ranges[index], ranges[other]));
+    }
+    return { ranges, errors, comparisons };
+  }, [input]);
+  const primaryStatus = analysis.ranges.length < 2
+    ? 'Add at least two ranges'
+    : analysis.comparisons.some((item) => item.status === 'Identical Ranges') ? 'Identical Ranges'
+      : analysis.comparisons.some((item) => item.status === 'Range A Contains Range B' || item.status === 'Range B Contains Range A') ? 'Contained Range'
+        : analysis.comparisons.some((item) => item.status === 'Partial Overlap') ? 'Partial Overlap'
+          : analysis.comparisons.some((item) => item.status === 'Touching Ranges') ? 'Touching Ranges' : 'No Overlap';
+  const primaryExplanation = analysis.ranges.length < 2
+    ? 'Enter one address, CIDR network, or explicit range per line.'
+    : analysis.errors.length > 0 ? 'Fix the highlighted inputs before trusting the comparison.'
+      : `${analysis.comparisons.filter((item) => item.overlapStart !== null).length} of ${analysis.comparisons.length} range pairs share addresses or contain one another.`;
+  const statusClass = primaryStatus === 'No Overlap' ? 'border-accent/30 bg-accent/10 text-accent' : primaryStatus === 'Add at least two ranges' ? 'border-border bg-background/35 text-muted-foreground' : 'border-primary/30 bg-primary/10 text-primary';
+  const minAddress = analysis.ranges.length ? Math.min(...analysis.ranges.map((range) => range.start)) : 0;
+  const maxAddress = analysis.ranges.length ? Math.max(...analysis.ranges.map((range) => range.end)) : 1;
+  const addressSpan = Math.max(1, maxAddress - minAddress + 1);
+  const comparisonText = analysis.comparisons.map((item) => {
+    const overlap = item.overlapStart !== null && item.overlapEnd !== null ? `\t${formatIp(item.overlapStart)}-${formatIp(item.overlapEnd)}\t${(item.overlapEnd - item.overlapStart + 1).toLocaleString()}` : '\t—\t0';
+    return `${item.a.source}\t${item.b.source}\t${item.status}${overlap}`;
+  });
+  const exportText = ['Range A\tRange B\tRelationship\tOverlap range\tOverlap addresses', ...comparisonText].join('\n');
+  return <><PageHeader eyebrow="Network math / 04" title="IP range / overlap checker" description="Normalize CIDR networks and explicit ranges, then find overlap, containment, adjacency, and conflicts." />
+    <section className="mb-3 rounded-md border border-border bg-card p-3 md:p-4">
+      <div className="mb-2 flex items-center justify-between"><SectionTitle detail="one input per line">Ranges to compare</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">IPv4 only</span></div>
+      <textarea aria-label="Ranges to compare" data-testid="input-range-list" value={input} onChange={(event) => setInput(event.target.value)} placeholder={'10.0.0.0/24\n10.0.0.128/25\n10.0.1.10-10.0.1.30'} className="min-h-[112px] w-full resize-y rounded-md border border-input bg-background/70 p-3 font-mono text-xs leading-6 text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary focus:ring-2 focus:ring-primary/20" />
+      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">Accepted formats: single IPv4 addresses, CIDR networks such as 10.0.0.0/24, and explicit ranges such as 10.0.0.10-10.0.0.50.</p>
+      {analysis.errors.length > 0 && <div className="mt-3 space-y-1 rounded border border-destructive/30 bg-destructive/10 p-3 text-[10px] text-destructive" role="alert">{analysis.errors.map((message) => <div key={message} className="flex gap-2"><X size={13} className="shrink-0" />{message}</div>)}</div>}
+    </section>
+    <div className={`mb-3 rounded-md border p-4 ${statusClass}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[0.16em] opacity-75">Comparison result</div><div className="mt-1 text-xl font-semibold">{primaryStatus}</div><p className="mt-1 text-xs opacity-80">{primaryExplanation}</p></div><div className="flex gap-1"><CopyButton value={exportText} label="Copy report" /><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => downloadText('netkit-range-report.tsv', exportText, 'text/tab-separated-values')}><Download size={13} />Export</Button></div></div></div>
+    {analysis.ranges.length > 0 && <section className="mb-3 rounded-md border border-border bg-card p-3 md:p-4">
+      <div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${analysis.ranges.length} normalized`}>Address Space</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">{formatIp(minAddress)} → {formatIp(maxAddress)}</span></div>
+      <div className="space-y-2">{analysis.ranges.map((range, index) => { const left = ((range.start - minAddress) / addressSpan) * 100; const width = Math.max(1.2, ((range.end - range.start + 1) / addressSpan) * 100); return <div key={`${range.source}-${index}`}><div className="mb-1 flex items-center justify-between gap-2 text-[9px]"><span className="truncate font-mono text-muted-foreground">{range.source}</span><span className="font-mono text-primary">{range.startIp} → {range.endIp}</span></div><div className="relative h-5 rounded border border-border bg-secondary"><span className={`absolute top-0.5 h-[17px] rounded ${index % 2 === 0 ? 'bg-primary/75' : 'bg-accent/70'}`} style={{ left: `${left}%`, width: `${Math.min(100 - left, width)}%` }} /></div></div>; })}</div>
+    </section>}
+    <section className="overflow-hidden rounded-md border border-border bg-card">
+      <div className="border-b border-border px-3 py-3 md:px-4"><SectionTitle detail="normalized inputs">Ranges</SectionTitle></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">Input</th><th className="px-3 py-2 font-medium">Start</th><th className="px-3 py-2 font-medium">End</th><th className="px-3 py-2 font-medium">CIDR</th><th className="px-3 py-2 font-medium">Subnet mask</th><th className="px-3 py-2 font-medium">Addresses</th></tr></thead><tbody>{analysis.ranges.map((range, index) => <tr key={`${range.source}-${index}`} className="border-b border-border/70 last:border-0"><td className="max-w-[180px] truncate px-3 py-2 font-mono text-primary">{range.source}</td><td className="px-3 py-2 font-mono">{range.startIp}</td><td className="px-3 py-2 font-mono">{range.endIp}</td><td className="px-3 py-2 font-mono">{range.cidr}</td><td className="px-3 py-2 font-mono">{range.mask}</td><td className="px-3 py-2 font-mono text-accent">{range.total.toLocaleString()}</td></tr>)}</tbody></table></div>
+    </section>
+    <section className="mt-3 overflow-hidden rounded-md border border-border bg-card">
+      <div className="border-b border-border px-3 py-3 md:px-4"><SectionTitle detail={`${analysis.comparisons.length} pair${analysis.comparisons.length === 1 ? '' : 's'}`}>Relationships</SectionTitle></div>
+      {analysis.comparisons.length === 0 ? <div className="p-6 text-center text-xs text-muted-foreground">Add at least two valid inputs to compare ranges.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">Range A</th><th className="px-3 py-2 font-medium">Range B</th><th className="px-3 py-2 font-medium">Relationship</th><th className="px-3 py-2 font-medium">Exact overlap</th><th className="px-3 py-2 font-medium">Addresses</th></tr></thead><tbody>{analysis.comparisons.map((item) => <tr key={`${item.a.source}-${item.b.source}`} className="border-b border-border/70 last:border-0"><td className="max-w-[190px] truncate px-3 py-2 font-mono">{item.a.source}</td><td className="max-w-[190px] truncate px-3 py-2 font-mono">{item.b.source}</td><td className={`px-3 py-2 font-semibold ${item.status === 'No Overlap' ? 'text-accent' : item.status === 'Touching Ranges' ? 'text-muted-foreground' : 'text-primary'}`}>{item.status}<div className="mt-0.5 font-normal text-muted-foreground">{item.explanation}</div></td><td className="px-3 py-2 font-mono">{item.overlapStart !== null && item.overlapEnd !== null ? `${formatIp(item.overlapStart)}-${formatIp(item.overlapEnd)}` : '—'}</td><td className="px-3 py-2 font-mono text-accent">{item.overlapStart !== null && item.overlapEnd !== null ? (item.overlapEnd - item.overlapStart + 1).toLocaleString() : '0'}</td></tr>)}</tbody></table></div>}
+    </section>
+  </>;
 }
 
 const ports = [
