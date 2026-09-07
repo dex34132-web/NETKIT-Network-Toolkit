@@ -8,7 +8,7 @@ import {
   Code2, Copy, Download, FileText, Hash, LayoutDashboard, Menu, Network,
   Pencil, Plus, Radio, RefreshCw, Search, Server, Settings2,
   SlidersHorizontal, Sparkles, Trash2, Upload, X, Grid2X2, MapPin,
-  Clock3, Sun, Zap, NotebookTabs, GitCompare, TerminalSquare, CircleDot, type LucideIcon,
+  Clock3, Moon, Sun, Zap, NotebookTabs, GitCompare, TerminalSquare, CircleDot, RotateCcw, type LucideIcon,
 } from 'lucide-react';
 import {
   Link, Route, Switch, useLocation, Router as WouterRouter,
@@ -19,14 +19,10 @@ const queryClient = new QueryClient();
 type Note = { id: number; title: string; body: string; tag: string; updated: string };
 type Cidr = {
   ip: string; prefix: number; network: string; broadcast: string; first: string;
-  last: string; mask: string; wildcard: string; hosts: number; blockSize: number;
+  last: string; mask: string; wildcard: string; hosts: number; total: number; blockSize: number;
 };
 
-const initialNotes: Note[] = [
-  { id: 1, title: 'Branch office WAN handoff', body: 'Confirm /31 on the provider side before cutover. BGP neighbor: 198.51.100.14.', tag: 'WAN', updated: 'Today, 09:42' },
-  { id: 2, title: 'Core switch uplift', body: 'New management SVI lives in 10.40.8.0/24. Reserve .1 for gateway and .254 for OOB.', tag: 'CHANGE', updated: 'Yesterday' },
-  { id: 3, title: 'Lab rack addressing', body: 'Keep 172.20.0.0/16 available for the virtual lab. VLANs 210–219 are unassigned.', tag: 'LAB', updated: 'Mon, 16:18' },
-];
+const initialNotes: Note[] = [];
 
 const navGroups = [
   {
@@ -56,6 +52,83 @@ const toolCards = [
   { href: '/notes', title: 'Notes', description: 'Save and organize your networking notes.', icon: NotebookTabs, key: '08', accent: 'yellow' },
 ];
 
+type Theme = 'dark' | 'light';
+type ActivityRecord = { href: string; count: number; updatedAt: number };
+const activityStorageKey = 'netkit-activity';
+const activityEventName = 'netkit-activity-updated';
+const themeEventName = 'netkit-theme-updated';
+
+const activityMeta: Record<string, { title: string; icon: LucideIcon; color: string }> = {
+  '/cidr-subnet': { title: 'CIDR Calculator', icon: Network, color: 'text-blue-300 bg-blue-500/20' },
+  '/ip-tools': { title: 'IP Tools', icon: Binary, color: 'text-violet-300 bg-violet-500/20' },
+  '/ip-range-tools': { title: 'IP Range / Overlap', icon: GitCompare, color: 'text-orange-300 bg-orange-500/20' },
+  '/vlan-tools': { title: 'VLAN Calculator', icon: Network, color: 'text-emerald-300 bg-emerald-500/20' },
+  '/port-reference': { title: 'Port Reference', icon: Radio, color: 'text-amber-300 bg-amber-500/20' },
+  '/command-builder': { title: 'Command Builder', icon: TerminalSquare, color: 'text-cyan-300 bg-cyan-500/20' },
+  '/notes': { title: 'Notes', icon: NotebookTabs, color: 'text-yellow-300 bg-yellow-500/20' },
+  '/export': { title: 'Export Workspace', icon: Upload, color: 'text-sky-300 bg-sky-500/20' },
+  '/settings': { title: 'Settings', icon: Settings2, color: 'text-slate-300 bg-slate-500/20' },
+};
+
+function readThemePreference(): Theme {
+  try {
+    return localStorage.getItem('netkit-theme') === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+function setThemePreference(theme: Theme) {
+  localStorage.setItem('netkit-theme', theme);
+  window.dispatchEvent(new Event(themeEventName));
+}
+
+function readActivity(): ActivityRecord[] {
+  try {
+    const stored = localStorage.getItem(activityStorageKey);
+    const parsed = stored ? JSON.parse(stored) as ActivityRecord[] : [];
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item.href === 'string' && typeof item.updatedAt === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordActivity(href: string) {
+  if (href === '/' || !activityMeta[href]) return;
+  const current = readActivity();
+  const existing = current.find((item) => item.href === href);
+  const next = existing
+    ? current.map((item) => item.href === href ? { ...item, count: item.count + 1, updatedAt: Date.now() } : item)
+    : [{ href, count: 1, updatedAt: Date.now() }, ...current];
+  localStorage.setItem(activityStorageKey, JSON.stringify(next.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8)));
+  window.dispatchEvent(new Event(activityEventName));
+}
+
+function formatActivityTime(timestamp: number): string {
+  const elapsed = Math.max(0, Date.now() - timestamp);
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function useActivity() {
+  const [activity, setActivity] = useState<ActivityRecord[]>(readActivity);
+  useEffect(() => {
+    const sync = () => setActivity(readActivity());
+    window.addEventListener(activityEventName, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(activityEventName, sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+  return activity;
+}
+
 function parseIp(value: string): number | null {
   const bits = value.trim().split('.');
   if (bits.length !== 4 || bits.some((bit) => !/^\d+$/.test(bit) || Number(bit) > 255)) return null;
@@ -74,12 +147,12 @@ function calculateCidr(ip: string, prefix: number): Cidr | null {
   const network = (parsed & mask) >>> 0;
   const broadcast = (network | (~mask >>> 0)) >>> 0;
   const total = 2 ** (32 - prefix);
-  const hosts = prefix >= 31 ? total : Math.max(0, total - 2);
+  const hosts = prefix === 31 ? total : prefix === 32 ? 0 : Math.max(0, total - 2);
   return {
     ip, prefix, network: formatIp(network), broadcast: formatIp(broadcast),
-    first: prefix >= 31 ? formatIp(network) : formatIp(network + 1),
-    last: prefix >= 31 ? formatIp(broadcast) : formatIp(broadcast - 1),
-    mask: formatIp(mask), wildcard: formatIp((~mask) >>> 0), hosts, blockSize: total,
+    first: prefix === 32 ? formatIp(network) : prefix === 31 ? formatIp(network) : formatIp(network + 1),
+    last: prefix === 32 ? formatIp(network) : prefix === 31 ? formatIp(broadcast) : formatIp(broadcast - 1),
+    mask: formatIp(mask), wildcard: formatIp((~mask) >>> 0), hosts, total, blockSize: total,
   };
 }
 
@@ -141,9 +214,22 @@ function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }
 function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
-  const pageName = [...navGroups.flatMap((group) => group.items)].find((item) => item.href === location)?.label ?? 'Dashboard';
+  const [theme, setTheme] = useState<Theme>(readThemePreference);
+  const pageName = location === '/settings' ? 'Settings' : [...navGroups.flatMap((group) => group.items)].find((item) => item.href === location)?.label ?? 'Dashboard';
   const allNav = navGroups.flatMap((group) => group.items);
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.toggle('light', theme === 'light');
+    setThemePreference(theme);
+  }, [theme]);
+  useEffect(() => {
+    const syncTheme = () => setTheme(readThemePreference());
+    window.addEventListener(themeEventName, syncTheme);
+    return () => window.removeEventListener(themeEventName, syncTheme);
+  }, []);
+  useEffect(() => {
+    recordActivity(location);
+  }, [location]);
   return <div className="scanline flex min-h-[100dvh] bg-background">
     <aside className="hidden w-[190px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
       <div className="flex h-[62px] items-center gap-2.5 border-b border-sidebar-border px-4">
@@ -159,8 +245,8 @@ function Layout({ children }: { children: ReactNode }) {
         </div>)}
       </div>
       <div className="border-t border-sidebar-border px-2.5 py-2">
-        <button type="button" onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><Settings2 size={15} />Settings</button>
-        <button type="button" onClick={() => setDarkMode((enabled) => !enabled)} className="mt-1 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><span className="flex items-center gap-2"><Sun size={15} />Dark Mode</span><span className={`relative h-3.5 w-6 rounded-full transition ${darkMode ? 'bg-blue-500' : 'bg-slate-600'}`}><span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-slate-100 transition-transform ${darkMode ? 'translate-x-3' : 'translate-x-0.5'}`} /></span></button>
+        <Link href="/settings" onClick={() => setMenuOpen(false)} className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[10px] transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground'}`}><Settings2 size={15} />Settings</Link>
+        <button type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} className="mt-1 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}><span className="flex items-center gap-2">{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span><span className={`relative h-3.5 w-6 rounded-full transition ${theme === 'dark' ? 'bg-blue-500' : 'bg-slate-500'}`}><span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-slate-100 transition-transform ${theme === 'dark' ? 'translate-x-3' : 'translate-x-0.5'}`} /></span></button>
       </div>
     </aside>
     <div className="min-w-0 flex-1">
@@ -169,25 +255,25 @@ function Layout({ children }: { children: ReactNode }) {
           <button type="button" onClick={() => setMenuOpen((open) => !open)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground md:hidden" aria-label="Open navigation" aria-expanded={menuOpen}><Menu size={16} /></button>
           <div className="relative hidden max-w-[402px] flex-1 sm:block">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-300/80" />
-            <input aria-label="Search tools, commands, or keywords" placeholder="Search for tools, commands, or keywords..." className="h-[30px] w-full rounded-md border border-blue-400/15 bg-[#101e35] pl-9 pr-3 text-[10px] text-foreground outline-none placeholder:text-slate-400/80 focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+            <input aria-label="Search tools, commands, or keywords" placeholder="Search for tools, commands, or keywords..." className="h-[30px] w-full rounded-md border border-input bg-card pl-9 pr-3 text-[10px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
           </div>
           <div className="truncate text-[10px] text-muted-foreground sm:hidden">NETKIT / <span className="text-primary">{pageName}</span></div>
         </div>
         <div className="ml-3 flex items-center gap-4">
-          <Sun size={16} className="text-slate-300" />
+          {theme === 'dark' ? <Sun size={16} className="text-muted-foreground" /> : <Moon size={16} className="text-muted-foreground" />}
         </div>
       </header>
-      {menuOpen && <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card/40 px-3 py-2 md:hidden">{allNav.map(({ href, label, icon: Icon }) => <Link key={`${href}-${label}`} href={href} onClick={() => setMenuOpen(false)} data-testid={`link-mobile-${label}`} className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === href ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Icon size={13} />{label}</Link>)}</nav>}
+      {menuOpen && <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card/40 px-3 py-2 md:hidden">{allNav.map(({ href, label, icon: Icon }) => <Link key={`${href}-${label}`} href={href} onClick={() => setMenuOpen(false)} data-testid={`link-mobile-${label}`} className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === href ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Icon size={13} />{label}</Link>)}<Link href="/settings" onClick={() => setMenuOpen(false)} data-testid="link-mobile-settings" className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === '/settings' ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Settings2 size={13} />Settings</Link></nav>}
       <main className="netkit-grid min-h-[calc(100dvh-62px)] px-3 py-3 md:px-5 md:py-3"><div className="mx-auto max-w-[1160px] page-enter">{children}</div></main>
     </div>
   </div>;
 }
 
 function NavItem({ href, label, icon: Icon, active }: { href: string; label: string; icon: LucideIcon; active: boolean }) {
-  return <Link href={href} data-testid={`link-nav-${label}`} className={`group flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[10px] transition-all ${active ? 'bg-[#12396f] font-semibold text-foreground shadow-[inset_0_0_0_1px_rgba(70,143,255,.1)]' : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}><Icon size={15} strokeWidth={active ? 2.1 : 1.7} className={active ? 'text-blue-300' : ''} /><span className="flex-1">{label}</span></Link>;
+  return <Link href={href} data-testid={`link-nav-${label}`} className={`group flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[10px] transition-all ${active ? 'bg-sidebar-accent font-semibold text-foreground shadow-[inset_0_0_0_1px_rgba(70,143,255,.1)]' : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}><Icon size={15} strokeWidth={active ? 2.1 : 1.7} className={active ? 'text-blue-300' : ''} /><span className="flex-1">{label}</span></Link>;
 }
 
-function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
+function PageHeader({ eyebrow, title, description, action, compact = false }: { eyebrow: string; title: string; description: string; action?: ReactNode; compact?: boolean }) {
   const [, navigate] = useLocation();
   const goBack = () => {
     if (window.history.length > 1) {
@@ -196,7 +282,7 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
       navigate('/');
     }
   };
-  return <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><button type="button" onClick={goBack} className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary" data-testid="button-back"><ArrowLeft size={13} /> Back</button><div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-primary"><span className="h-px w-5 bg-primary" />{eyebrow}</div><h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p></div>{action}</div>;
+  return <div className={`${compact ? 'mb-4 gap-3' : 'mb-7 gap-5'} flex flex-col justify-between md:flex-row md:items-end`}><div><button type="button" onClick={goBack} className={`${compact ? 'mb-2 px-2 py-1' : 'mb-4 px-2.5 py-1.5'} inline-flex items-center gap-1.5 rounded-md border border-border bg-card text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary`} data-testid="button-back"><ArrowLeft size={13} /> Back</button><div className="mb-1.5 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-primary"><span className="h-px w-5 bg-primary" />{eyebrow}</div><h1 className={`${compact ? 'text-xl' : 'text-2xl md:text-3xl'} font-semibold tracking-tight text-foreground`}>{title}</h1><p className={`${compact ? 'mt-1 text-[11px]' : 'mt-2 text-sm'} max-w-2xl leading-relaxed text-muted-foreground`}>{description}</p></div>{action}</div>;
 }
 
 function SectionTitle({ children, detail }: { children: ReactNode; detail?: string }) {
@@ -216,7 +302,7 @@ function Dashboard() {
   return <><PageHeader eyebrow="Overview / 01" title="Ready when the network is." description="A tight set of instruments for the moments between a diagram and a change window." action={<Link href="/export" className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3.5 py-2 text-sm font-semibold text-muted-foreground transition hover:border-primary/50 hover:text-primary" data-testid="link-export-dashboard"><Download size={15} /> Export workspace</Link>} />
     <div className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
       <section className="relative overflow-hidden rounded-lg border border-border bg-card p-5 md:p-6"><div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-primary/5 blur-3xl" /><div className="relative"><div className="mb-5 flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary">Quick calculation</div><h2 className="mt-1 text-lg font-semibold">Subnet a network</h2></div><span className="rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary">IPv4 / CIDR</span></div><div className="grid gap-3 sm:grid-cols-[1fr_108px_auto] sm:items-end"><Field label="Network address" value={quickIp} onChange={setQuickIp} placeholder="192.168.1.0" /><Field label="Prefix" value={quickPrefix} onChange={setQuickPrefix} type="number" min={0} max={32} /><Button onClick={run} data-testid="button-dashboard-calculate"><Sparkles size={15} /> Calculate</Button></div>{result ? <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4 border-t border-border pt-5 sm:grid-cols-4"><Stat label="Network" value={`${result.network}/${result.prefix}`} /><Stat label="Broadcast" value={result.broadcast} /><Stat label="Usable hosts" value={result.hosts.toLocaleString()} accent="text-accent" /><Stat label="Netmask" value={result.mask} /></div> : <div className="mt-5 rounded border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">Enter a valid IPv4 address and prefix from 0 to 32.</div>}</div></section>
-      <section className="rounded-lg border border-border bg-card p-5 md:p-6"><div className="mb-5 flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">Workspace pulse</div><h2 className="mt-1 text-lg font-semibold">Your toolkit at a glance</h2></div><Settings2 size={18} className="text-muted-foreground" /></div><div className="grid grid-cols-2 gap-px overflow-hidden rounded border border-border bg-border"><div className="bg-card p-4"><div className="font-mono text-2xl text-primary">08</div><div className="mt-1 text-xs text-muted-foreground">instruments ready</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-accent">{notes.length.toString().padStart(2, '0')}</div><div className="mt-1 text-xs text-muted-foreground">local notes</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-amber-300">24</div><div className="mt-1 text-xs text-muted-foreground">common ports</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-sky-300">0 ms</div><div className="mt-1 text-xs text-muted-foreground">network overhead</div></div></div><Link href="/command-builder" className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-muted-foreground transition hover:text-primary" data-testid="link-dashboard-command"><span className="flex items-center gap-2"><Code2 size={14} /> Build a change command</span><ArrowRight size={14} /></Link></section>
+      <section className="rounded-lg border border-border bg-card p-5 md:p-6"><div className="mb-5 flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">Workspace pulse</div><h2 className="mt-1 text-lg font-semibold">Your toolkit at a glance</h2></div><Settings2 size={18} className="text-muted-foreground" /></div><div className="grid grid-cols-2 gap-px overflow-hidden rounded border border-border bg-border"><div className="bg-card p-4"><div className="font-mono text-2xl text-primary">{toolCards.length.toString().padStart(2, '0')}</div><div className="mt-1 text-xs text-muted-foreground">instruments ready</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-accent">{notes.length.toString().padStart(2, '0')}</div><div className="mt-1 text-xs text-muted-foreground">local notes</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-amber-300">{ports.length}</div><div className="mt-1 text-xs text-muted-foreground">reference entries</div></div><div className="bg-card p-4"><div className="font-mono text-sm text-sky-300">Browser local</div><div className="mt-1 text-xs text-muted-foreground">execution mode</div></div></div><Link href="/command-builder" className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-muted-foreground transition hover:text-primary" data-testid="link-dashboard-command"><span className="flex items-center gap-2"><Code2 size={14} /> Build a change command</span><ArrowRight size={14} /></Link></section>
     </div>
     <section className="mt-8"><SectionTitle detail="6 instruments">Network tools</SectionTitle><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{toolCards.map((tool, index) => <Link key={tool.key} href={tool.href} data-testid={`card-tool-${tool.key}`} className={`group page-enter stagger-${Math.min(index + 1, 3)} relative flex min-h-[132px] flex-col justify-between overflow-hidden rounded-lg border border-border bg-card p-4 transition duration-200 hover:-translate-y-0.5 hover:border-primary/45 hover:bg-card/80`}><div className="flex items-start justify-between"><div className={`flex h-9 w-9 items-center justify-center rounded-md border ${tool.accent === 'cyan' ? 'border-primary/25 bg-primary/10 text-primary' : tool.accent === 'lime' ? 'border-accent/25 bg-accent/10 text-accent' : 'border-amber-300/25 bg-amber-300/10 text-amber-300'}`}><tool.icon size={17} /></div><span className="font-mono text-[10px] text-muted-foreground/60">{tool.key}</span></div><div><div className="flex items-center justify-between"><h3 className="text-sm font-semibold group-hover:text-primary">{tool.title}</h3><ArrowRight size={14} className="text-muted-foreground transition group-hover:translate-x-1 group-hover:text-primary" /></div><p className="mt-1 text-xs text-muted-foreground">{tool.description}</p></div></Link>)}</div></section>
     <section className="mt-8 grid gap-5 lg:grid-cols-[1fr_1fr]"><div><SectionTitle detail="local state">Recent notes</SectionTitle><div className="overflow-hidden rounded-lg border border-border bg-card">{notes.map((note) => <Link href="/notes" key={note.id} data-testid={`row-dashboard-note-${note.id}`} className="flex items-center gap-3 border-b border-border px-4 py-3.5 transition last:border-b-0 hover:bg-secondary/50"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border bg-secondary font-mono text-[10px] text-primary">{String(note.id).padStart(2, '0')}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{note.title}</div><div className="mt-0.5 truncate text-xs text-muted-foreground">{note.body}</div></div><span className="hidden font-mono text-[10px] text-muted-foreground sm:block">{note.updated}</span></Link>)}</div></div><div><SectionTitle detail="shortcuts">Quick tools</SectionTitle><div className="grid grid-cols-2 gap-2"><Link href="/port-reference" className="rounded-lg border border-border bg-card p-4 transition hover:border-primary/40" data-testid="card-quick-port"><div className="mb-5 flex items-center justify-between"><Radio size={16} className="text-accent" /><span className="font-mono text-[10px] text-muted-foreground">CTRL K</span></div><div className="text-sm font-semibold">Port reference</div><div className="mt-1 text-xs text-muted-foreground">TCP, UDP and service notes</div></Link><Link href="/ip-tools" className="rounded-lg border border-border bg-card p-4 transition hover:border-primary/40" data-testid="card-quick-convert"><div className="mb-5 flex items-center justify-between"><Binary size={16} className="text-primary" /><span className="font-mono text-[10px] text-muted-foreground">IPV4</span></div><div className="text-sm font-semibold">Convert an address</div><div className="mt-1 text-xs text-muted-foreground">See every representation</div></Link></div></div></section>
@@ -230,12 +316,7 @@ function RefinedDashboard() {
     { href: '/ip-tools', label: 'IP Tools', icon: Binary },
     { href: '/vlan-tools', label: 'VLAN Calculator', icon: Network },
   ];
-  const activity = [
-    { title: 'CIDR Calculator', detail: 'Used 2 hours ago', href: '/cidr-subnet', icon: Network, color: 'text-blue-300 bg-blue-500/20' },
-    { title: 'Subnet Calculator', detail: 'Used 4 hours ago', href: '/cidr-subnet', icon: Calculator, color: 'text-emerald-300 bg-emerald-500/20' },
-    { title: 'VLAN Calculator', detail: 'Used 1 day ago', href: '/vlan-tools', icon: Network, color: 'text-sky-300 bg-sky-500/20' },
-    { title: 'Notes', detail: 'Updated 2 days ago', href: '/notes', icon: NotebookTabs, color: 'text-amber-300 bg-amber-500/20' },
-  ];
+  const activity = useActivity();
   const accentStyles: Record<string, string> = {
     blue: 'border-blue-400/20 bg-blue-500/15 text-blue-300',
     green: 'border-emerald-400/20 bg-emerald-500/15 text-emerald-300',
@@ -246,11 +327,11 @@ function RefinedDashboard() {
   };
   return <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_196px]">
     <div className="min-w-0">
-      <section className="relative mb-4 h-[146px] overflow-hidden rounded-md border border-blue-400/20 bg-[linear-gradient(110deg,#0c2749,#102f59_62%,#123b69)] px-6 py-5">
+      <section className="netkit-hero relative mb-4 h-[146px] overflow-hidden rounded-md border border-blue-400/20 px-6 py-5">
         <div className="relative z-10">
           <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-blue-200">Welcome to</div>
-          <h1 className="mt-1 text-[30px] font-bold leading-none tracking-tight text-slate-100">NET<span className="text-blue-400">KIT</span></h1>
-          <p className="mt-2 text-[12px] text-slate-200">Your all-in-one network engineering toolkit.</p>
+          <h1 className="mt-1 text-[30px] font-bold leading-none tracking-tight text-foreground">NET<span className="text-blue-400">KIT</span></h1>
+          <p className="mt-2 text-[12px] text-foreground/80">Your all-in-one network engineering toolkit.</p>
           <div className="mt-3 flex gap-4 text-[8px] text-blue-200/75"><span>Calculate</span><span>Configure</span><span>Troubleshoot</span><span>Simplify</span></div>
         </div>
         <div className="absolute right-3 top-0 h-full w-[44%] opacity-80">
@@ -265,7 +346,7 @@ function RefinedDashboard() {
         <div className="mb-2 flex items-center gap-2"><Grid2X2 size={17} className="text-slate-200" /><h2 className="text-[15px] font-semibold">Network Tools</h2></div>
         <p className="mb-2 pl-[25px] text-[9px] text-muted-foreground">Essential tools for everyday network engineering tasks.</p>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          {toolCards.map((tool) => <Link key={tool.key} href={tool.href} data-testid={`card-tool-${tool.key}`} className="group relative flex min-h-[124px] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-3 transition hover:-translate-y-0.5 hover:border-blue-400/45 hover:bg-[#101d32]">
+          {toolCards.map((tool) => <Link key={tool.key} href={tool.href} data-testid={`card-tool-${tool.key}`} className="group relative flex min-h-[124px] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-3 transition hover:-translate-y-0.5 hover:border-blue-400/45 hover:bg-card/80">
             <div className="flex items-start justify-between"><div className={`flex h-9 w-9 items-center justify-center rounded-md border ${accentStyles[tool.accent]}`}><tool.icon size={18} /></div><span className="font-mono text-[9px] text-muted-foreground/60">{tool.key}</span></div>
             <div><div className="flex items-center justify-between gap-1"><h3 className="truncate text-[10px] font-semibold group-hover:text-blue-300">{tool.title}</h3><ArrowRight size={12} className="shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-blue-300" /></div><p className="mt-1 line-clamp-2 text-[8px] leading-[1.35] text-muted-foreground">{tool.description}</p></div>
           </Link>)}
@@ -273,22 +354,22 @@ function RefinedDashboard() {
       </section>
       <section className="mt-3 rounded-md border border-border bg-card p-3">
         <div className="mb-2 flex items-center gap-2"><Zap size={16} className="text-blue-300" /><div><h2 className="text-[13px] font-semibold">Quick Access</h2><p className="text-[8px] text-muted-foreground">Jump straight into the tools you use most.</p></div></div>
-        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">{quickAccess.map(({ href, label, icon: Icon }) => <Link key={label} href={href} className="flex items-center justify-between rounded border border-border bg-[#0d1a2c] px-2 py-1.5 text-[8px] text-slate-300 transition hover:border-blue-400/40 hover:text-blue-200"><span className="flex items-center gap-1.5"><Icon size={12} className="text-blue-300" />{label}</span><ChevronRight size={11} className="text-muted-foreground" /></Link>)}</div>
+        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">{quickAccess.map(({ href, label, icon: Icon }) => <Link key={label} href={href} className="flex items-center justify-between rounded border border-border bg-secondary px-2 py-1.5 text-[8px] text-secondary-foreground transition hover:border-blue-400/40 hover:text-primary"><span className="flex items-center gap-1.5"><Icon size={12} className="text-blue-300" />{label}</span><ChevronRight size={11} className="text-muted-foreground" /></Link>)}</div>
       </section>
     </div>
     <aside className="space-y-3">
       <section className="rounded-md border border-border bg-card p-3">
         <div className="mb-3 flex items-center gap-2"><Zap size={15} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Quick Info</h2></div>
         <div className="space-y-3 text-[8px]">
-          <div className="flex gap-2"><MapPin size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Private IP Ranges</div><p className="mt-1 leading-4 text-muted-foreground">10.0.0.0/8, 172.16.0.0/12,<br />192.168.0.0/16</p></div></div>
-          <div className="flex gap-2"><CircleDot size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Common Subnet Masks</div><p className="mt-1 leading-4 text-muted-foreground">/24&nbsp;&nbsp;255.255.255.0<br />/16&nbsp;&nbsp;255.255.0.0<br />/8&nbsp;&nbsp;&nbsp;255.0.0.0</p></div></div>
-          <div className="flex gap-2"><Server size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Well Known Ports</div><p className="mt-1 leading-4 text-muted-foreground">HTTP&nbsp;&nbsp;80 &nbsp; HTTPS&nbsp;&nbsp;443<br />SSH&nbsp;&nbsp;&nbsp;22 &nbsp; DNS&nbsp;&nbsp;&nbsp;53</p></div></div>
+          <div className="flex gap-2"><MapPin size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Private IP ranges · RFC 1918</div><p className="mt-1 leading-4 text-muted-foreground">10.0.0.0/8<br />172.16.0.0/12<br />192.168.0.0/16</p></div></div>
+          <div className="flex gap-2"><CircleDot size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Common subnet masks</div><p className="mt-1 leading-4 text-muted-foreground">/8 · 255.0.0.0<br />/16 · 255.255.0.0<br />/24 · 255.255.255.0</p></div></div>
+          <div className="flex gap-2"><Server size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Well-known ports</div><p className="mt-1 leading-4 text-muted-foreground">SSH 22 · DNS 53<br />HTTP 80 · HTTPS 443</p></div></div>
         </div>
         <Link href="/port-reference" className="mt-3 flex items-center gap-1 text-[8px] text-blue-300 hover:text-blue-200">View More <ArrowRight size={11} /></Link>
       </section>
       <section className="rounded-md border border-border bg-card p-3">
         <div className="mb-3 flex items-center gap-2"><Clock3 size={14} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Recent Activity</h2></div>
-        <div className="space-y-3">{activity.map(({ title, detail, href, icon: Icon, color }) => <Link key={title} href={href} className="flex items-center gap-2"><span className={`flex h-7 w-7 items-center justify-center rounded ${color}`}><Icon size={14} /></span><span className="min-w-0"><span className="block truncate text-[9px] font-medium text-slate-200">{title}</span><span className="mt-0.5 block text-[8px] text-muted-foreground">{detail}</span></span></Link>)}</div>
+        {activity.length === 0 ? <div className="rounded border border-dashed border-border px-2 py-3 text-[9px] leading-4 text-muted-foreground">No tool activity yet. Open a tool and it will appear here.</div> : <div className="space-y-3">{activity.slice(0, 4).map((entry) => { const meta = activityMeta[entry.href]; if (!meta) return null; const Icon = meta.icon; return <Link key={entry.href} href={entry.href} className="flex items-center gap-2"><span className={`flex h-7 w-7 items-center justify-center rounded ${meta.color}`}><Icon size={14} /></span><span className="min-w-0"><span className="block truncate text-[9px] font-medium text-slate-200">{meta.title}</span><span className="mt-0.5 block text-[8px] text-muted-foreground">{entry.count} {entry.count === 1 ? 'visit' : 'visits'} · {formatActivityTime(entry.updatedAt)}</span></span></Link>; })}</div>}
       </section>
     </aside>
   </div>;
@@ -299,7 +380,60 @@ function CidrPage() {
   const [prefix, setPrefix] = useState('24');
   const [result, setResult] = useState<Cidr | null>(() => calculateCidr('192.168.10.0', 24));
   const run = () => setResult(calculateCidr(ip, Number(prefix)));
-  return <><PageHeader eyebrow="Network math / 01" title="CIDR / subnet calculator" description="Calculate network boundaries, usable hosts, masks and block sizes without leaving your change window." /><div className="grid gap-5 xl:grid-cols-[360px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="inputs">Address parameters</SectionTitle><div className="space-y-4"><Field label="IPv4 address" value={ip} onChange={setIp} placeholder="192.168.10.0" /><Field label="Prefix length" value={prefix} onChange={setPrefix} type="number" min={0} max={32} /><div className="rounded-md border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground"><span className="font-mono text-primary">TIP</span><br />Use any host address inside the subnet. NETKIT normalizes it to the network boundary.</div><Button onClick={run} className="w-full" data-testid="button-calculate-cidr"><Calculator size={15} /> Calculate subnet</Button></div></section><section>{result ? <div className="grid gap-3 sm:grid-cols-2"><ResultCard label="Network address" value={`${result.network}/${result.prefix}`} accent="cyan" /><ResultCard label="Broadcast address" value={result.broadcast} /><ResultCard label="First usable host" value={result.first} accent="lime" /><ResultCard label="Last usable host" value={result.last} accent="lime" /><ResultCard label="Subnet mask" value={result.mask} /><ResultCard label="Wildcard mask" value={result.wildcard} /><ResultCard label="Usable host count" value={result.hosts.toLocaleString()} accent="lime" /><ResultCard label="Address block size" value={result.blockSize.toLocaleString()} /></div> : <EmptyState icon={Calculator} title="Waiting for a valid network" text="Enter an IPv4 address and prefix to see the computed boundaries." />}</section></div></>;
+  const invalid = !result;
+  const addressBinary = result ? binaryIp(result.network) : '';
+  const maskBinary = result ? binaryIp(result.mask) : '';
+  const wildcardBinary = result ? binaryIp(result.wildcard) : '';
+  const className = result?.prefix !== undefined && result.prefix <= 7 ? 'Class A Network' : result?.prefix !== undefined && result.prefix <= 15 ? 'Class B Network' : 'Class C Network';
+  return <><PageHeader compact eyebrow="Network / 01" title="CIDR Calculator" description="Calculate network details, host range, broadcast address and more." action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">IPv4 / CIDR</span>} />
+    <section className="mb-3 rounded-md border border-border bg-card p-3 md:p-4">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_150px_auto] md:items-end">
+        <Field label="Network Address" value={ip} onChange={setIp} placeholder="192.168.10.0" />
+        <Field label="CIDR Prefix" value={prefix} onChange={setPrefix} type="number" min={0} max={32} />
+        <Button onClick={run} className="h-10 min-w-[105px]" data-testid="button-calculate-cidr"><Calculator size={13} /> Calculate</Button>
+      </div>
+      {invalid && <div className="mt-2 text-[11px] text-destructive">Enter a valid IPv4 address and a prefix between 0 and 32.</div>}
+    </section>
+    {result ? <div className="space-y-3">
+      <section className="rounded-md border border-border bg-card p-3 md:p-4">
+        <SectionTitle detail={`${result.network}/${result.prefix}`}>Network Details</SectionTitle>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_180px]">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+            {[
+              ['Network Address', `${result.network}/${result.prefix}`],
+              ['Broadcast Address', result.broadcast],
+              ['First Usable Host', result.prefix === 31 ? `${result.first} · endpoint` : result.first],
+              ['Last Usable Host', result.prefix === 31 ? `${result.last} · endpoint` : result.last],
+              ['Subnet Mask', result.mask],
+              ['Wildcard Mask', result.wildcard],
+              ['Total Hosts', result.total.toLocaleString()],
+              ['Usable Hosts', result.hosts.toLocaleString()],
+            ].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-border/70 py-1.5 last:border-0 sm:block"><span className="text-[10px] text-muted-foreground">{label}</span><span className="font-mono text-[11px] text-slate-200">{value}</span></div>)}
+          </div>
+          <div className="flex flex-col items-center justify-center border-t border-border pt-4 lg:border-l lg:border-t-0 lg:pt-0">
+            <div className="relative flex h-[76px] w-[76px] items-center justify-center rounded-full border-2 border-primary bg-primary/5 font-mono text-xl text-slate-100 shadow-[0_0_0_5px_rgba(42,130,255,.08)]">/{result.prefix}</div>
+            <div className="mt-2 text-[10px] font-semibold text-slate-200">{className}</div>
+            <div className="mt-0.5 font-mono text-[9px] text-muted-foreground">{result.mask}</div>
+            <div className="mt-4 h-1.5 w-full max-w-[140px] overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(8, Math.min(100, (result.hosts / Math.max(result.total, 1)) * 100))}%` }} /></div>
+            <div className="mt-1 flex items-center gap-1 font-mono text-[9px] text-accent"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{result.hosts.toLocaleString()} usable hosts</div>
+          </div>
+        </div>
+      </section>
+      <section className="rounded-md border border-border bg-card p-3 md:p-4">
+        <div className="mb-3 flex items-center justify-between"><SectionTitle>Binary Representation</SectionTitle><CopyButton value={`IP Address (Binary): ${addressBinary}\nSubnet Mask (Binary): ${maskBinary}\nWildcard Mask (Binary): ${wildcardBinary}`} label="Copy All" /></div>
+        <div className="space-y-2">
+          {[['IP Address (Binary)', addressBinary], ['Subnet Mask (Binary)', maskBinary], ['Wildcard Mask (Binary)', wildcardBinary]].map(([label, value]) => <div key={label} className="grid gap-1.5 sm:grid-cols-[145px_1fr] sm:items-center"><span className="pl-1 text-[10px] text-muted-foreground">{label}</span><code className="overflow-x-auto rounded border border-border bg-background/60 px-2 py-1.5 font-mono text-[10px] tracking-wide text-slate-200">{value}</code></div>)}
+        </div>
+      </section>
+      <section className="rounded-md border border-border bg-card p-3 md:p-4">
+        <SectionTitle>Quick Reference</SectionTitle>
+        <div className="grid grid-cols-3 divide-x divide-border rounded border border-border bg-background/35">
+          <div className="p-3"><div className="text-[9px] text-muted-foreground">CIDR / Prefix</div><div className="mt-1 font-mono text-xs text-slate-100">/{result.prefix}</div></div>
+          <div className="p-3"><div className="text-[9px] text-muted-foreground">Subnet Mask</div><div className="mt-1 font-mono text-xs text-slate-100">{result.mask}</div></div>
+          <div className="p-3"><div className="text-[9px] text-muted-foreground">Usable Hosts</div><div className="mt-1 font-mono text-xs text-accent">{result.hosts.toLocaleString()}</div></div>
+        </div>
+      </section>
+    </div> : <EmptyState icon={Calculator} title="Waiting for a valid network" text="Enter an IPv4 address and prefix to see the computed boundaries." />}</>;
 }
 
 function ResultCard({ label, value, accent = 'default' }: { label: string; value: string; accent?: 'default' | 'cyan' | 'lime' }) {
@@ -311,16 +445,60 @@ function EmptyState({ icon: Icon, title, text }: { icon: LucideIcon; title: stri
 }
 
 function IpToolsPage() {
-  const [ip, setIp] = useState('172.16.4.25');
-  const valid = parseIp(ip) !== null;
-  const parsed = valid ? parseIp(ip) as number : 0;
-  const values = valid ? [
-    ['Decimal (32-bit)', String(parsed >>> 0)],
-    ['Binary', binaryIp(ip)],
-    ['Hexadecimal', hexIp(ip)],
-    ['Dotted decimal', ip],
+  const [ip, setIp] = useState('192.168.10.1');
+  const [convertedIp, setConvertedIp] = useState('192.168.10.1');
+  const [activeTab, setActiveTab] = useState('IP Converter');
+  const [additional, setAdditional] = useState<Record<string, string>>({ 'IP to Binary': '', 'IP to Decimal': '', 'IP to Hex': '', 'Validate IP': '' });
+  const valid = parseIp(convertedIp) !== null;
+  const parsed = valid ? parseIp(convertedIp) as number : 0;
+  const conversionValues = valid ? [
+    ['Decimal', String(parsed >>> 0)],
+    ['Binary', binaryIp(convertedIp)],
+    ['Hexadecimal', hexIp(convertedIp)],
   ] : [];
-  return <><PageHeader eyebrow="Network math / 02" title="IP conversion tools" description="One address, four useful representations. Keep the exact value visible while you work through ACLs, logs and documentation." /><div className="grid gap-5 xl:grid-cols-[360px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="source">IPv4 address</SectionTitle><Field label="Address" value={ip} onChange={setIp} placeholder="10.0.0.1" /><div className={`mt-4 rounded-md border p-3 text-xs ${valid ? 'border-accent/25 bg-accent/5 text-accent' : 'border-destructive/30 bg-destructive/10 text-destructive'}`}>{valid ? 'Valid IPv4 address' : 'That does not look like an IPv4 address.'}</div><div className="mt-5 border-t border-border pt-4 text-xs text-muted-foreground">Each octet is represented as 8 bits. The decimal value is unsigned.</div></section><section className="grid gap-3 sm:grid-cols-2">{valid ? values.map(([label, value], index) => <ResultCard key={label} label={label} value={value} accent={index === 1 ? 'cyan' : index === 2 ? 'lime' : 'default'} />) : <div className="sm:col-span-2"><EmptyState icon={Binary} title="Enter an IPv4 address" text="Conversion results will appear here as you type." /></div>}</section></div></>;
+  const tabs = ['IP Converter', 'IP Validator', 'IP Range', 'Binary / Decimal', 'MAC Address'];
+  const runAdditional = (tool: string) => {
+    const value = additional[tool] ?? '';
+    const number = parseIp(value);
+    let output = 'Enter a valid IPv4 address.';
+    if (number !== null) output = tool === 'IP to Binary' ? binaryIp(value) : tool === 'IP to Decimal' ? String(number >>> 0) : tool === 'IP to Hex' ? hexIp(value) : 'Valid IPv4 address';
+    setAdditional((current) => ({ ...current, [`${tool}-result`]: output }));
+  };
+  return <><PageHeader compact eyebrow="Network / 02" title="IP Tools" description="Convert, validate and analyze IP addresses." action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">IPv4</span>} />
+    <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border">
+      {tabs.map((tab) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} disabled={tab !== 'IP Converter'} data-testid={`tab-ip-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`} className={`shrink-0 border-b-2 px-3 py-2 text-[10px] font-medium transition ${activeTab === tab ? 'border-primary bg-primary/10 text-primary' : 'border-transparent text-muted-foreground hover:text-slate-200'} disabled:cursor-default`}>{tab}{tab !== 'IP Converter' && <span className="ml-1 text-[8px] text-muted-foreground/60">soon</span>}</button>)}
+    </div>
+    <section className="rounded-md border border-border bg-card p-3 md:p-4">
+      <SectionTitle detail="convert between formats">IP Converter</SectionTitle>
+      <div className="mb-3 flex gap-1 rounded border border-border bg-background/45 p-1 sm:w-[150px]">
+        <button type="button" className="flex-1 rounded bg-primary/15 px-3 py-1.5 text-[10px] font-semibold text-primary">IPv4</button>
+        <button type="button" disabled className="flex-1 rounded px-3 py-1.5 text-[10px] text-muted-foreground/50" title="IPv6 conversion is coming soon">IPv6</button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <Field label="Enter IPv4 address" value={ip} onChange={setIp} placeholder="192.168.10.1" />
+        <Button onClick={() => setConvertedIp(ip)} className="h-10 min-w-[100px]" data-testid="button-convert-ip"><RefreshCw size={13} /> Convert</Button>
+      </div>
+      {parseIp(ip) === null && <div className="mt-2 text-[11px] text-destructive">IPv4 octets must be numeric values from 0 to 255.</div>}
+      <div className="mt-4 grid gap-2 border-t border-border pt-3 md:grid-cols-3">
+        {conversionValues.map(([label, value], index) => <div key={label} className="rounded border border-border bg-background/45 p-3"><div className="text-[9px] text-muted-foreground">{label}</div><div data-testid={`text-ip-${label.toLowerCase()}`} className={`mt-2 break-all font-mono text-[11px] ${index === 0 ? 'text-slate-200' : index === 1 ? 'text-primary' : 'text-accent'}`}>{value}</div></div>)}
+      </div>
+    </section>
+    <section className="mt-3">
+      <SectionTitle detail="quick utilities">Additional Tools</SectionTitle>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {['IP to Binary', 'IP to Decimal', 'IP to Hex', 'Validate IP'].map((tool, index) => {
+          const value = additional[tool] ?? '';
+          const output = additional[`${tool}-result`];
+          return <div key={tool} className="rounded-md border border-border bg-card p-3">
+            <div className="mb-2 flex items-center justify-between"><div className="flex items-center gap-2"><span className={`flex h-7 w-7 items-center justify-center rounded border ${index === 0 ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' : index === 1 ? 'border-violet-400/30 bg-violet-500/15 text-violet-300' : index === 2 ? 'border-orange-400/30 bg-orange-500/15 text-orange-300' : 'border-cyan-400/30 bg-cyan-500/15 text-cyan-300'}`}><Binary size={13} /></span><span className="text-[11px] font-semibold">{tool}</span></div><span className="font-mono text-[8px] text-muted-foreground">LOCAL</span></div>
+            <p className="mb-2 text-[9px] text-muted-foreground">{tool === 'Validate IP' ? 'Check if an IP address is valid (IPv4).' : `Convert an IPv4 address to ${tool.replace('IP to ', '').toLowerCase()}.`}</p>
+            <div className="flex gap-1.5"><input aria-label={`${tool} address`} data-testid={`input-${tool.toLowerCase().replace(/\s+/g, '-')}`} value={value} onChange={(event) => setAdditional((current) => ({ ...current, [tool]: event.target.value }))} placeholder="Enter IP address" className="h-8 min-w-0 flex-1 rounded border border-input bg-background/60 px-2 text-[10px] font-mono outline-none focus:border-primary" /><Button onClick={() => runAdditional(tool)} className="h-8 px-2 text-[9px]" data-testid={`button-${tool.toLowerCase().replace(/\s+/g, '-')}`}><RefreshCw size={11} />{tool === 'Validate IP' ? 'Validate' : 'Convert'}</Button></div>
+            <div className="mt-2 flex min-h-7 items-center justify-between gap-2 rounded border border-border bg-background/55 px-2 py-1.5 font-mono text-[9px] text-muted-foreground"><span className="truncate">{output ?? 'Result will appear here...'}</span>{output && output !== 'Enter a valid IPv4 address.' && <CopyButton value={output} label="" />}</div>
+          </div>;
+        })}
+      </div>
+    </section>
+  </>;
 }
 
 function VlanPage() {
@@ -382,7 +560,7 @@ function CommandBuilderPage() {
     if (vendor === 'Arista EOS') return `interface Vlan${vlan}\n description ${description}\n ip address ${ip}/24\n no shutdown`;
     return `/interface vlan\nadd name=${description} vlan-id=${vlan}\n/ip address\nadd address=${ip}/24 interface=${description}`;
   }, [commandType, description, interfaceName, ip, vendor, vlan]);
-  return <><PageHeader eyebrow="Reference / 06" title="Command builder" description="Generate a clean starting point for common access-port and SVI changes. Verify against your platform standards before applying." /><div className="grid gap-5 xl:grid-cols-[390px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="parameters">Change inputs</SectionTitle><div className="space-y-4"><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Platform</span><select data-testid="select-command-vendor" value={vendor} onChange={(event) => setVendor(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"><option>Cisco IOS</option><option>Arista EOS</option><option>MikroTik RouterOS</option></select></label><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Change type</span><select data-testid="select-command-type" value={commandType} onChange={(event) => setCommandType(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"><option value="interface">Access interface</option><option value="svi">SVI / gateway</option></select></label><Field label="Interface" value={interfaceName} onChange={setInterfaceName} /><Field label="VLAN ID" value={vlan} onChange={setVlan} type="number" /><Field label="Description" value={description} onChange={setDescription} />{commandType === 'svi' && <Field label="Gateway IP" value={ip} onChange={setIp} />}</div></section><section className="overflow-hidden rounded-lg border border-border bg-[#0a1015]"><div className="flex items-center justify-between border-b border-border bg-card/60 px-4 py-3"><div className="flex items-center gap-2"><Code2 size={15} className="text-primary" /><span className="font-mono text-xs text-muted-foreground">{vendor.toLowerCase().replace(' ', '-')}.conf</span></div><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => copy(command)}><Copy size={13} />{copied ? 'Copied' : 'Copy command'}</Button></div><pre data-testid="text-generated-command" className="min-h-[330px] overflow-x-auto p-5 font-mono text-sm leading-7 text-slate-300"><code>{command}</code></pre><div className="border-t border-border bg-card/35 px-4 py-3 text-[11px] text-muted-foreground">Generated locally · Review interface names and policy before deployment.</div></section></div></>;
+  return <><PageHeader eyebrow="Reference / 06" title="Command builder" description="Generate a clean starting point for common access-port and SVI changes. Verify against your platform standards before applying." /><div className="grid gap-5 xl:grid-cols-[390px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="parameters">Change inputs</SectionTitle><div className="space-y-4"><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Platform</span><select data-testid="select-command-vendor" value={vendor} onChange={(event) => setVendor(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"><option>Cisco IOS</option><option>Arista EOS</option><option>MikroTik RouterOS</option></select></label><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Change type</span><select data-testid="select-command-type" value={commandType} onChange={(event) => setCommandType(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"><option value="interface">Access interface</option><option value="svi">SVI / gateway</option></select></label><Field label="Interface" value={interfaceName} onChange={setInterfaceName} /><Field label="VLAN ID" value={vlan} onChange={setVlan} type="number" /><Field label="Description" value={description} onChange={setDescription} />{commandType === 'svi' && <Field label="Gateway IP" value={ip} onChange={setIp} />}</div></section><section className="overflow-hidden rounded-lg border border-border bg-card"><div className="flex items-center justify-between border-b border-border bg-card/60 px-4 py-3"><div className="flex items-center gap-2"><Code2 size={15} className="text-primary" /><span className="font-mono text-xs text-muted-foreground">{vendor.toLowerCase().replace(' ', '-')}.conf</span></div><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => copy(command)}><Copy size={13} />{copied ? 'Copied' : 'Copy command'}</Button></div><pre data-testid="text-generated-command" className="min-h-[330px] overflow-x-auto p-5 font-mono text-sm leading-7 text-slate-300"><code>{command}</code></pre><div className="border-t border-border bg-card/35 px-4 py-3 text-[11px] text-muted-foreground">Generated locally · Review interface names and policy before deployment.</div></section></div></>;
 }
 
 function NotesPage() {
@@ -411,7 +589,65 @@ function ExportPage() {
   }, [format]);
   const copy = () => { void navigator.clipboard?.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1400); };
   const download = () => { const blob = new Blob([text], { type: format === 'json' ? 'application/json' : format === 'csv' ? 'text/csv' : 'text/markdown' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName; anchor.click(); URL.revokeObjectURL(url); };
-  return <><PageHeader eyebrow="Workspace / 08" title="Export workspace" description="Take a clean snapshot of your current working set. Copy it into a ticket or download it for your records." /><div className="grid gap-5 xl:grid-cols-[300px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="output">Export format</SectionTitle><div className="space-y-2">{[['markdown', 'Markdown', 'Readable handoff'], ['json', 'JSON', 'Structured snapshot'], ['csv', 'CSV', 'Spreadsheet ready']].map(([value, label, detail]) => <button key={value} data-testid={`button-format-${value}`} onClick={() => setFormat(value)} className={`w-full rounded-md border p-3 text-left transition ${format === value ? 'border-primary/50 bg-primary/10' : 'border-border hover:bg-secondary'}`}><div className="flex items-center justify-between"><span className={`text-sm font-semibold ${format === value ? 'text-primary' : ''}`}>{label}</span>{format === value && <Check size={15} className="text-primary" />}</div><div className="mt-1 text-xs text-muted-foreground">{detail}</div></button>)}</div><div className="mt-6 rounded-md border border-border bg-background/50 p-3 text-[11px] leading-relaxed text-muted-foreground">Exports are generated entirely in your browser. No project data is uploaded.</div></section><section className="overflow-hidden rounded-lg border border-border bg-[#0a1015]"><div className="flex items-center justify-between border-b border-border bg-card/60 px-4 py-3"><div className="flex items-center gap-2"><FileText size={15} className="text-accent" /><span className="font-mono text-xs text-muted-foreground">{fileName}</span></div><div className="flex gap-1"><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={copy}><Copy size={13} />{copied ? 'Copied' : 'Copy'}</Button><Button variant="primary" className="px-2.5 py-1.5 text-xs" onClick={download}><Download size={13} />Download</Button></div></div><pre data-testid="text-export-preview" className="min-h-[390px] overflow-auto p-5 font-mono text-xs leading-6 text-slate-300"><code>{text}</code></pre></section></div></>;
+  return <><PageHeader eyebrow="Workspace / 08" title="Export workspace" description="Take a clean snapshot of your current working set. Copy it into a ticket or download it for your records." /><div className="grid gap-5 xl:grid-cols-[300px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="output">Export format</SectionTitle><div className="space-y-2">{[['markdown', 'Markdown', 'Readable handoff'], ['json', 'JSON', 'Structured snapshot'], ['csv', 'CSV', 'Spreadsheet ready']].map(([value, label, detail]) => <button key={value} data-testid={`button-format-${value}`} onClick={() => setFormat(value)} className={`w-full rounded-md border p-3 text-left transition ${format === value ? 'border-primary/50 bg-primary/10' : 'border-border hover:bg-secondary'}`}><div className="flex items-center justify-between"><span className={`text-sm font-semibold ${format === value ? 'text-primary' : ''}`}>{label}</span>{format === value && <Check size={15} className="text-primary" />}</div><div className="mt-1 text-xs text-muted-foreground">{detail}</div></button>)}</div><div className="mt-6 rounded-md border border-border bg-background/50 p-3 text-[11px] leading-relaxed text-muted-foreground">Exports are generated entirely in your browser. No project data is uploaded.</div></section><section className="overflow-hidden rounded-lg border border-border bg-card"><div className="flex items-center justify-between border-b border-border bg-card/60 px-4 py-3"><div className="flex items-center gap-2"><FileText size={15} className="text-accent" /><span className="font-mono text-xs text-muted-foreground">{fileName}</span></div><div className="flex gap-1"><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={copy}><Copy size={13} />{copied ? 'Copied' : 'Copy'}</Button><Button variant="primary" className="px-2.5 py-1.5 text-xs" onClick={download}><Download size={13} />Download</Button></div></div><pre data-testid="text-export-preview" className="min-h-[390px] overflow-auto p-5 font-mono text-xs leading-6 text-slate-300"><code>{text}</code></pre></section></div></>;
+}
+
+function SettingsPage() {
+  const [theme, setTheme] = useState<Theme>(readThemePreference);
+  const [status, setStatus] = useState('');
+  const [activityCount, setActivityCount] = useState(() => readActivity().length);
+  const [noteCount, setNoteCount] = useState(() => {
+    try {
+      const stored = localStorage.getItem('netkit-notes');
+      return stored ? (JSON.parse(stored) as Note[]).length : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const chooseTheme = (next: Theme) => {
+    setTheme(next);
+    setThemePreference(next);
+    setStatus(`${next === 'dark' ? 'Dark' : 'Light'} mode enabled.`);
+  };
+  const clearActivity = () => {
+    if (!window.confirm('Clear your local tool activity history?')) return;
+    localStorage.removeItem(activityStorageKey);
+    window.dispatchEvent(new Event(activityEventName));
+    setActivityCount(0);
+    setStatus('Activity history cleared.');
+  };
+  const clearNotes = () => {
+    if (!window.confirm('Delete all notes saved in this browser?')) return;
+    localStorage.removeItem('netkit-notes');
+    setNoteCount(0);
+    setStatus('Local notes cleared.');
+  };
+
+  return <><PageHeader eyebrow="Workspace / 09" title="Settings" description="Control NETKIT appearance and the local data stored in this browser." />
+    <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+      <section className="rounded-md border border-border bg-card p-4 md:p-5">
+        <div className="mb-4 flex items-center gap-2"><Sun size={16} className="text-primary" /><div><h2 className="text-sm font-semibold">Appearance</h2><p className="text-[10px] text-muted-foreground">Choose the interface contrast for this browser.</p></div></div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {(['dark', 'light'] as Theme[]).map((option) => <button key={option} type="button" onClick={() => chooseTheme(option)} className={`rounded-md border p-3 text-left transition ${theme === option ? 'border-primary bg-primary/10' : 'border-border hover:bg-secondary'}`} data-testid={`button-theme-${option}`}><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-xs font-semibold">{option === 'dark' ? <Moon size={14} /> : <Sun size={14} />}{option === 'dark' ? 'Dark mode' : 'Light mode'}</span>{theme === option && <Check size={14} className="text-primary" />}</div><div className="mt-2 text-[10px] leading-4 text-muted-foreground">{option === 'dark' ? 'Low-light workspace with blue network accents.' : 'Higher-contrast workspace for bright environments.'}</div></button>)}
+        </div>
+      </section>
+      <section className="rounded-md border border-border bg-card p-4 md:p-5">
+        <div className="mb-4 flex items-center gap-2"><Settings2 size={16} className="text-primary" /><div><h2 className="text-sm font-semibold">Local workspace</h2><p className="text-[10px] text-muted-foreground">NETKIT does not upload these browser-only records.</p></div></div>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded border border-border bg-border">
+          <div className="bg-card p-3"><div className="font-mono text-lg text-primary">{activityCount}</div><div className="mt-1 text-[10px] text-muted-foreground">tracked tools</div></div>
+          <div className="bg-card p-3"><div className="font-mono text-lg text-accent">{noteCount}</div><div className="mt-1 text-[10px] text-muted-foreground">saved notes</div></div>
+        </div>
+        <div className="mt-4 space-y-2">
+          <Button variant="secondary" className="w-full justify-start text-xs" onClick={clearActivity} disabled={activityCount === 0}><RotateCcw size={13} /> Clear activity history</Button>
+          <Button variant="danger" className="w-full justify-start text-xs" onClick={clearNotes} disabled={noteCount === 0}><Trash2 size={13} /> Delete local notes</Button>
+        </div>
+      </section>
+    </div>
+    <section className="mt-4 rounded-md border border-border bg-card p-4 md:p-5">
+      <div className="flex items-start gap-3"><div className="flex h-8 w-8 items-center justify-center rounded border border-primary/20 bg-primary/10 text-primary"><SlidersHorizontal size={15} /></div><div><h2 className="text-sm font-semibold">About this workspace</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Calculations, conversion results, activity tracking, theme preference, and notes stay in your browser. Network tools do not send addresses to a remote service.</p>{status && <p className="mt-3 font-mono text-[10px] text-accent">{status}</p>}</div></div>
+    </section>
+  </>;
 }
 
 function NotFoundPage() {
@@ -429,6 +665,7 @@ function Router() {
     <Route path="/command-builder" component={CommandBuilderPage} />
     <Route path="/notes" component={NotesPage} />
     <Route path="/export" component={ExportPage} />
+    <Route path="/settings" component={SettingsPage} />
     <Route component={NotFoundPage} />
   </Switch></ErrorBoundary></Layout>;
 }
