@@ -4,7 +4,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
-  ArrowRight, Binary, BookOpen, Calculator, Check, ChevronRight, Clipboard,
+  ArrowLeft, ArrowRight, Binary, BookOpen, Calculator, Check, ChevronRight, Clipboard,
   Code2, Copy, Download, FileText, Hash, LayoutDashboard, Menu, Network,
   Pencil, Plus, Radio, RefreshCw, Search, Server, Settings2,
   SlidersHorizontal, Sparkles, Trash2, Upload, X, Grid2X2, MapPin,
@@ -188,7 +188,15 @@ function NavItem({ href, label, icon: Icon, active }: { href: string; label: str
 }
 
 function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
-  return <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-primary"><span className="h-px w-5 bg-primary" />{eyebrow}</div><h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p></div>{action}</div>;
+  const [, navigate] = useLocation();
+  const goBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigate('/');
+    }
+  };
+  return <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><button type="button" onClick={goBack} className="mb-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary" data-testid="button-back"><ArrowLeft size={13} /> Back</button><div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-primary"><span className="h-px w-5 bg-primary" />{eyebrow}</div><h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p></div>{action}</div>;
 }
 
 function SectionTitle({ children, detail }: { children: ReactNode; detail?: string }) {
