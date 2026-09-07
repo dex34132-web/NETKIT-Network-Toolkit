@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -16,7 +16,19 @@ import {
 
 const queryClient = new QueryClient();
 
-type Note = { id: number; title: string; body: string; tag: string; updated: string };
+type Note = {
+  id: number;
+  title: string;
+  body: string;
+  tag: string;
+  updated: string;
+  category: string;
+  tags: string[];
+  pinned: boolean;
+  archived: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
 type Cidr = {
   ip: string; prefix: number; network: string; broadcast: string; first: string;
   last: string; mask: string; wildcard: string; hosts: number; total: number; blockSize: number;
@@ -71,6 +83,176 @@ type PortEntry = {
 };
 
 const initialNotes: Note[] = [];
+
+type BuilderVendor = 'Cisco IOS / IOS-XE' | 'Juniper Junos' | 'FortiGate' | 'Palo Alto Networks' | 'F5 BIG-IP';
+type BuilderCategory = 'interface' | 'ip-address' | 'vlan' | 'static-route' | 'routing' | 'policy' | 'diagnostics' | 'show';
+type BuilderField = { key: string; label: string; placeholder: string; required?: boolean; type?: string; min?: number; max?: number; options?: string[] };
+
+const builderVendors: BuilderVendor[] = ['Cisco IOS / IOS-XE', 'Juniper Junos', 'FortiGate', 'Palo Alto Networks', 'F5 BIG-IP'];
+const builderCategories: { value: BuilderCategory; label: string }[] = [
+  { value: 'interface', label: 'Interface configuration' },
+  { value: 'ip-address', label: 'IP addressing' },
+  { value: 'vlan', label: 'VLAN configuration' },
+  { value: 'static-route', label: 'Static route' },
+  { value: 'routing', label: 'Routing protocol' },
+  { value: 'policy', label: 'Access / control policy' },
+  { value: 'diagnostics', label: 'Diagnostics' },
+  { value: 'show', label: 'Show / display command' },
+];
+const builderFieldDefinitions: Record<BuilderCategory, BuilderField[]> = {
+  interface: [
+    { key: 'interfaceName', label: 'Interface name', placeholder: 'GigabitEthernet1/0/24', required: true },
+    { key: 'description', label: 'Description', placeholder: 'EDGE_USERS access', required: true },
+    { key: 'vlan', label: 'VLAN ID', placeholder: '120', required: true, type: 'number', min: 1, max: 4094 },
+  ],
+  'ip-address': [
+    { key: 'interfaceName', label: 'Interface name', placeholder: 'GigabitEthernet1/0/24', required: true },
+    { key: 'ip', label: 'IPv4 address', placeholder: '10.120.0.1', required: true },
+    { key: 'prefix', label: 'Prefix', placeholder: '24', required: true, type: 'number', min: 0, max: 32 },
+    { key: 'description', label: 'Description', placeholder: 'User gateway', required: true },
+  ],
+  vlan: [
+    { key: 'vlan', label: 'VLAN ID', placeholder: '120', required: true, type: 'number', min: 1, max: 4094 },
+    { key: 'vlanName', label: 'VLAN name', placeholder: 'EDGE_USERS', required: true },
+    { key: 'interfaceName', label: 'Interface / trunk', placeholder: 'GigabitEthernet1/0/1', required: true },
+    { key: 'description', label: 'Description', placeholder: 'User access VLAN', required: true },
+  ],
+  'static-route': [
+    { key: 'destination', label: 'Destination network', placeholder: '10.40.0.0', required: true },
+    { key: 'prefix', label: 'Prefix', placeholder: '24', required: true, type: 'number', min: 0, max: 32 },
+    { key: 'nextHop', label: 'Next hop', placeholder: '10.120.0.254', required: true },
+    { key: 'description', label: 'Route name / description', placeholder: 'Branch network', required: true },
+  ],
+  routing: [
+    { key: 'protocol', label: 'Protocol', placeholder: 'OSPF', required: true, options: ['OSPF', 'BGP'] },
+    { key: 'process', label: 'Process / ASN', placeholder: '10', required: true },
+    { key: 'network', label: 'Advertised network', placeholder: '10.120.0.0', required: true },
+    { key: 'wildcard', label: 'Wildcard / mask', placeholder: '0.0.0.255', required: true },
+    { key: 'area', label: 'Area / peer', placeholder: '0', required: true },
+  ],
+  policy: [
+    { key: 'policyName', label: 'Policy name', placeholder: 'ALLOW_DNS', required: true },
+    { key: 'source', label: 'Source', placeholder: 'LAN_USERS', required: true },
+    { key: 'destination', label: 'Destination', placeholder: 'ANY', required: true },
+    { key: 'service', label: 'Service', placeholder: 'DNS', required: true },
+    { key: 'action', label: 'Action', placeholder: 'permit', required: true, options: ['permit', 'deny'] },
+  ],
+  diagnostics: [{ key: 'command', label: 'Diagnostic target', placeholder: '10.120.0.1', required: true }],
+  show: [{ key: 'command', label: 'Show target', placeholder: 'interfaces status', required: true }],
+};
+
+const defaultBuilderValues: Record<string, string> = {
+  interfaceName: 'GigabitEthernet1/0/24', description: 'EDGE_USERS access', vlan: '120',
+  ip: '10.120.0.1', prefix: '24', vlanName: 'EDGE_USERS', destination: '10.40.0.0',
+  nextHop: '10.120.0.254', protocol: 'OSPF', process: '10', network: '10.120.0.0',
+  wildcard: '0.0.0.255', area: '0', policyName: 'ALLOW_DNS', source: 'LAN_USERS',
+  service: 'DNS', action: 'permit', command: 'interfaces status',
+};
+
+const noteCategories = ['Network Design', 'Troubleshooting', 'Commands', 'IP Planning', 'VLANs', 'Devices', 'General'];
+
+function normalizeNote(value: Partial<Note>, index = 0): Note {
+  const now = Date.now();
+  const updatedAt = typeof value.updatedAt === 'number' ? value.updatedAt : now;
+  return {
+    id: typeof value.id === 'number' ? value.id : now + index,
+    title: typeof value.title === 'string' ? value.title : 'Untitled note',
+    body: typeof value.body === 'string' ? value.body : '',
+    tag: typeof value.tag === 'string' ? value.tag : (typeof value.category === 'string' ? value.category : 'NOTE'),
+    updated: typeof value.updated === 'string' ? value.updated : 'Just now',
+    category: typeof value.category === 'string' && value.category ? value.category : 'General',
+    tags: Array.isArray(value.tags) ? value.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+    pinned: value.pinned === true,
+    archived: value.archived === true,
+    createdAt: typeof value.createdAt === 'number' ? value.createdAt : updatedAt,
+    updatedAt,
+  };
+}
+
+function formatNoteTime(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(timestamp);
+}
+
+function builderFields(category: BuilderCategory) {
+  return builderFieldDefinitions[category];
+}
+
+function validateBuilderValues(category: BuilderCategory, values: Record<string, string>): Record<string, string> {
+  const errors: Record<string, string> = {};
+  builderFields(category).forEach((field) => {
+    const value = (values[field.key] ?? '').trim();
+    if (field.required && !value) errors[field.key] = 'Required';
+  });
+  if (values.ip && parseIp(values.ip) === null) errors.ip = 'Enter a valid IPv4 address.';
+  if (values.destination && parseIp(values.destination) === null) errors.destination = 'Enter a valid IPv4 address.';
+  if (values.nextHop && parseIp(values.nextHop) === null) errors.nextHop = 'Enter a valid IPv4 address.';
+  if (values.network && parseIp(values.network) === null) errors.network = 'Enter a valid IPv4 address.';
+  if (values.wildcard && parseIp(values.wildcard) === null) errors.wildcard = 'Enter a valid IPv4 mask.';
+  if (values.prefix && (!/^\d+$/.test(values.prefix) || Number(values.prefix) > 32)) errors.prefix = 'Use a prefix from 0 through 32.';
+  if (values.vlan && (!/^\d+$/.test(values.vlan) || Number(values.vlan) < 1 || Number(values.vlan) > 4094)) errors.vlan = 'Use a VLAN ID from 1 through 4094.';
+  return errors;
+}
+
+function generateBuilderCommand(vendor: BuilderVendor, category: BuilderCategory, values: Record<string, string>): string {
+  const v = (key: string) => values[key] ?? '';
+  if (category === 'interface') {
+    if (vendor.startsWith('Cisco')) return `interface ${v('interfaceName')}\n description ${v('description')}\n switchport mode access\n switchport access vlan ${v('vlan')}\n spanning-tree portfast`;
+    if (vendor === 'Juniper Junos') return `set interfaces ${v('interfaceName')} description "${v('description')}"\nset interfaces ${v('interfaceName')} unit 0 family ethernet-switching interface-mode access\nset interfaces ${v('interfaceName')} unit 0 family ethernet-switching vlan members ${v('vlan')}`;
+    if (vendor === 'FortiGate') return `config system interface\n edit "${v('interfaceName')}"\n  set description "${v('description')}"\n  set vlanid ${v('vlan')}\n next\nend`;
+    if (vendor === 'Palo Alto Networks') return `set network interface ethernet ${v('interfaceName')} layer3 comment "${v('description')}"\nset network interface ethernet ${v('interfaceName')} layer3 ip ${v('ip')}/${v('prefix')}`;
+    return `tmsh create net vlan ${v('vlanName') || v('interfaceName')} interfaces add { ${v('interfaceName')} } description "${v('description')}"`;
+  }
+  if (category === 'ip-address') {
+    if (vendor.startsWith('Cisco')) return `interface ${v('interfaceName')}\n description ${v('description')}\n ip address ${v('ip')} ${calculateCidr('0.0.0.0', Number(v('prefix')))?.mask ?? ''}\n no shutdown`;
+    if (vendor === 'Juniper Junos') return `set interfaces ${v('interfaceName')} unit 0 family inet address ${v('ip')}/${v('prefix')}\nset interfaces ${v('interfaceName')} description "${v('description')}"`;
+    if (vendor === 'FortiGate') return `config system interface\n edit "${v('interfaceName')}"\n  set ip ${v('ip')} ${v('prefix')}\n  set description "${v('description')}"\n next\nend`;
+    if (vendor === 'Palo Alto Networks') return `set network interface ethernet ${v('interfaceName')} layer3 ip ${v('ip')}/${v('prefix')}\nset network interface ethernet ${v('interfaceName')} layer3 comment "${v('description')}"`;
+    return `tmsh create net self ${v('description').replace(/\s+/g, '_')} address ${v('ip')}/${v('prefix')} vlan ${v('interfaceName')}`;
+  }
+  if (category === 'vlan') {
+    if (vendor.startsWith('Cisco')) return `vlan ${v('vlan')}\n name ${v('vlanName')}\ninterface ${v('interfaceName')}\n description ${v('description')}\n switchport mode access\n switchport access vlan ${v('vlan')}`;
+    if (vendor === 'Juniper Junos') return `set vlans ${v('vlanName')} vlan-id ${v('vlan')}\nset interfaces ${v('interfaceName')} unit 0 family ethernet-switching vlan members ${v('vlanName')}`;
+    if (vendor === 'FortiGate') return `config system interface\n edit "${v('vlanName')}"\n  set interface "${v('interfaceName')}"\n  set vlanid ${v('vlan')}\n  set description "${v('description')}"\n next\nend`;
+    if (vendor === 'Palo Alto Networks') return `set network profiles interface-management-profile ${v('vlanName')} comment "${v('description')}"\nset network interface vlan units vlan.${v('vlan')} tag ${v('vlan')}`;
+    return `tmsh create net vlan ${v('vlanName')} tag ${v('vlan')} interfaces add { ${v('interfaceName')} } description "${v('description')}"`;
+  }
+  if (category === 'static-route') {
+    if (vendor.startsWith('Cisco')) return `ip route ${v('destination')} ${calculateCidr('0.0.0.0', Number(v('prefix')))?.mask ?? ''} ${v('nextHop')} name ${v('description')}`;
+    if (vendor === 'Juniper Junos') return `set routing-options static route ${v('destination')}/${v('prefix')} next-hop ${v('nextHop')}\nset routing-options static route ${v('destination')}/${v('prefix')} description "${v('description')}"`;
+    if (vendor === 'FortiGate') return `config router static\n edit 0\n  set dst ${v('destination')}/${v('prefix')}\n  set gateway ${v('nextHop')}\n  set comment "${v('description')}"\n next\nend`;
+    if (vendor === 'Palo Alto Networks') return `set network virtual-router default routing-table ip static-route ${v('description')} destination ${v('destination')}/${v('prefix')} nexthop ip-address ${v('nextHop')}`;
+    return `tmsh create net route ${v('description').replace(/\s+/g, '_')} network ${v('destination')}/${v('prefix')} gw ${v('nextHop')}`;
+  }
+  if (category === 'routing') {
+    if (v('protocol') === 'BGP') {
+      if (vendor.startsWith('Cisco')) return `router bgp ${v('process')}\n network ${v('network')} mask ${v('wildcard')}\n neighbor ${v('area')} remote-as ${v('process')}`;
+      if (vendor === 'Juniper Junos') return `set protocols bgp group ${v('process')} type external\nset protocols bgp group ${v('process')} peer-as ${v('process')}\nset protocols bgp group ${v('process')} neighbor ${v('area')}`;
+      return `# ${vendor}\n# BGP ASN ${v('process')} peer ${v('area')}\n# Advertise ${v('network')} (review platform policy before applying)`;
+    }
+    if (vendor.startsWith('Cisco')) return `router ospf ${v('process')}\n network ${v('network')} ${v('wildcard')} area ${v('area')}`;
+    if (vendor === 'Juniper Junos') return `set protocols ospf area ${v('area')} interface ${v('network')}\nset policy-options policy-statement ${v('process')} term ${v('network').replace(/\./g, '_')} from route-filter ${v('network')}/${v('wildcard')} exact`;
+    return `# ${vendor}\n# ${v('protocol')} process ${v('process')} area/peer ${v('area')}\n# Advertise ${v('network')} ${v('wildcard')} (review syntax for this release)`;
+  }
+  if (category === 'policy') {
+    if (vendor.startsWith('Cisco')) return `ip access-list extended ${v('policyName')}\n ${v('action')} ${v('protocol') || 'ip'} ${v('source')} ${v('destination')} eq ${v('service')}`;
+    if (vendor === 'Juniper Junos') return `set firewall family inet filter ${v('policyName')} term ${v('service')} from source-address ${v('source')}\nset firewall family inet filter ${v('policyName')} term ${v('service')} from destination-address ${v('destination')}\nset firewall family inet filter ${v('policyName')} term ${v('service')} then ${v('action')}`;
+    if (vendor === 'FortiGate') return `config firewall policy\n edit 0\n  set name "${v('policyName')}"\n  set srcaddr "${v('source')}"\n  set dstaddr "${v('destination')}"\n  set service "${v('service')}"\n  set action ${v('action')}\n next\nend`;
+    if (vendor === 'Palo Alto Networks') return `set rulebase security rules ${v('policyName')} from ${v('source')}\nset rulebase security rules ${v('policyName')} to ${v('destination')}\nset rulebase security rules ${v('policyName')} service ${v('service')}\nset rulebase security rules ${v('policyName')} action ${v('action')}`;
+    return `tmsh create ltm virtual ${v('policyName')} destination ${v('destination')} profiles add { ${v('service')} } # action: ${v('action')}`;
+  }
+  if (category === 'diagnostics') {
+    if (vendor.startsWith('Cisco')) return `show interfaces ${v('command')}\nping ${v('command')}`;
+    if (vendor === 'Juniper Junos') return `show interfaces ${v('command')} terse\nping ${v('command')}`;
+    if (vendor === 'FortiGate') return `diagnose netlink interface list ${v('command')}\nexecute ping ${v('command')}`;
+    if (vendor === 'Palo Alto Networks') return `show interface ${v('command')}\ntest routing fib-lookup virtual-router default ip ${v('command')}`;
+    return `tmsh show sys connection cs-server-addr ${v('command')}`;
+  }
+  if (vendor.startsWith('Cisco')) return `show ${v('command')}`;
+  if (vendor === 'Juniper Junos') return `show ${v('command')} | display set`;
+  if (vendor === 'FortiGate') return `get ${v('command')}`;
+  if (vendor === 'Palo Alto Networks') return `show ${v('command')}`;
+  return `tmsh show ${v('command')}`;
+}
 
 const navGroups = [
   {
