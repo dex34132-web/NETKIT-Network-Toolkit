@@ -48,6 +48,27 @@ type RangeRelation = {
   overlapStart: number | null;
   overlapEnd: number | null;
 };
+type VlanPlanRow = {
+  id: number;
+  name: string;
+  description: string;
+  purpose: string;
+  network: string;
+  gateway: string;
+  hostRequirement: number;
+  subnet: Cidr;
+  extended: boolean;
+};
+type PortEntry = {
+  port: number;
+  protocol: 'TCP' | 'UDP' | 'TCP/UDP';
+  service: string;
+  transport: string;
+  description: string;
+  usage: string;
+  notes: string;
+  category: string;
+};
 
 const initialNotes: Note[] = [];
 
@@ -207,7 +228,7 @@ function buildSubnetPlan(input: string, originalPrefix: number, mode: SubnetMode
     const maxHosts = base.prefix === 31 ? 2 : base.prefix === 32 ? 0 : (2 ** (32 - base.prefix)) - 2;
     if (targetValue > maxHosts) return { plan: null, error: `This network cannot provide ${targetValue.toLocaleString()} usable hosts.` };
     targetPrefix = -1;
-    for (let prefix = base.prefix; prefix <= 32; prefix += 1) {
+    for (let prefix = 32; prefix >= base.prefix; prefix -= 1) {
       const hosts = prefix === 31 ? 2 : prefix === 32 ? 0 : Math.max(0, (2 ** (32 - prefix)) - 2);
       if (hosts >= targetValue) {
         targetPrefix = prefix;
@@ -228,6 +249,29 @@ function buildSubnetPlan(input: string, originalPrefix: number, mode: SubnetMode
     if (row) rows.push({ ...row, number: index + 1 });
   }
   return { plan: { base, targetPrefix, generated, increment, rows } };
+}
+
+function calculateVlanSubnet(input: string, mode: 'prefix' | 'hosts', target: number): { subnet: Cidr | null; error?: string } {
+  const parent = parseNetworkInput(input, 24);
+  if (!parent) return { subnet: null, error: 'Enter a valid IPv4 network such as 10.120.0.0/24.' };
+  if (mode === 'prefix') {
+    if (!Number.isInteger(target) || target < 0 || target > 32) return { subnet: null, error: 'Enter a target prefix from /0 through /32.' };
+    if (target < parent.prefix || target > 32) return { subnet: null, error: `The target prefix must be between /${parent.prefix} and /32.` };
+    return { subnet: calculateCidr(parent.network, target) };
+  }
+  if (!Number.isInteger(target) || target < 1) return { subnet: null, error: 'Host requirements must be a positive whole number.' };
+  const parentHosts = parent.prefix === 31 ? 2 : parent.prefix === 32 ? 0 : parent.total - 2;
+  if (target > parentHosts) return { subnet: null, error: `The parent network cannot provide ${target.toLocaleString()} usable hosts.` };
+  for (let prefix = 32; prefix >= parent.prefix; prefix -= 1) {
+    const hosts = prefix === 31 ? 2 : prefix === 32 ? 0 : (2 ** (32 - prefix)) - 2;
+    if (hosts >= target) return { subnet: calculateCidr(parent.network, prefix) };
+  }
+  return { subnet: null, error: 'No IPv4 prefix can satisfy that host requirement.' };
+}
+
+function vlanRangeClass(id: number): 'Normal' | 'Extended' | 'Invalid' {
+  if (!Number.isInteger(id) || id < 1 || id > 4094) return 'Invalid';
+  return id <= 1005 ? 'Normal' : 'Extended';
 }
 
 function parseRangeValue(value: string): { range: IpRange | null; error?: string } {
@@ -408,7 +452,7 @@ function PageHeader({ eyebrow, title, description, action, compact = false }: { 
 }
 
 function SectionTitle({ children, detail }: { children: ReactNode; detail?: string }) {
-  return <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold tracking-tight text-foreground">{children}</h2>{detail && <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{detail}</span>}</div>;
+  return <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-sm font-semibold tracking-tight text-foreground">{children}</h2>{detail && <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{detail}</span>}</div>;
 }
 
 function Stat({ label, value, accent = 'text-primary' }: { label: string; value: string; accent?: string }) {
@@ -688,13 +732,123 @@ function IpToolsPage() {
 }
 
 function VlanPage() {
+  const [rows, setRows] = useState<VlanPlanRow[]>(() => {
+    try {
+      const stored = localStorage.getItem('netkit-vlan-plan');
+      return stored ? JSON.parse(stored) as VlanPlanRow[] : [];
+    } catch {
+      return [];
+    }
+  });
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [vlanId, setVlanId] = useState('120');
   const [name, setName] = useState('EDGE_USERS');
-  const [base, setBase] = useState('10.120.0.0');
-  const [prefix, setPrefix] = useState('24');
-  const [rows, setRows] = useState<{ id: string; name: string; subnet: Cidr | null }[]>([]);
-  const add = () => { if (Number(vlanId) >= 1 && Number(vlanId) <= 4094 && name.trim()) { setRows((current) => [{ id: vlanId, name: name.trim(), subnet: calculateCidr(base, Number(prefix)) }, ...current]); setVlanId(String(Number(vlanId) + 1)); } };
-  return <><PageHeader eyebrow="Planning / 03" title="VLAN planner" description="Give every segment a deliberate name, ID and address block before it reaches a switch template." /><div className="grid gap-5 xl:grid-cols-[380px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="new segment">VLAN definition</SectionTitle><div className="grid grid-cols-2 gap-3"><Field label="VLAN ID" value={vlanId} onChange={setVlanId} type="number" min={1} max={4094} /><Field label="Name" value={name} onChange={setName} placeholder="EDGE_USERS" /></div><div className="mt-4 grid grid-cols-[1fr_92px] gap-3"><Field label="Suggested subnet" value={base} onChange={setBase} placeholder="10.120.0.0" /><Field label="Prefix" value={prefix} onChange={setPrefix} type="number" min={0} max={32} /></div><Button onClick={add} className="mt-5 w-full" data-testid="button-add-vlan"><Plus size={15} /> Add VLAN to plan</Button><div className="mt-5 border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground"><span className="font-mono text-primary">RANGE</span><br />1–4094 supported. Keep infrastructure and user segments in separate address families.</div></section><section>{rows.length === 0 ? <EmptyState icon={Network} title="No VLANs in this plan" text="Add a VLAN definition to start a lightweight local plan." /> : <div className="overflow-hidden rounded-lg border border-border bg-card"><div className="grid grid-cols-[72px_1fr_1fr_80px] border-b border-border bg-secondary/40 px-4 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"><span>ID</span><span>Name</span><span>Subnet</span><span>Hosts</span></div>{rows.map((row, index) => <div key={`${row.id}-${index}`} data-testid={`row-vlan-${row.id}`} className="grid grid-cols-[72px_1fr_1fr_80px] items-center border-b border-border px-4 py-3.5 last:border-0"><span className="font-mono text-sm text-primary">{row.id}</span><span className="text-sm font-medium">{row.name}</span><span className="font-mono text-xs text-muted-foreground">{row.subnet ? `${row.subnet.network}/${row.subnet.prefix}` : '—'}</span><span className="font-mono text-xs text-accent">{row.subnet?.hosts.toLocaleString() ?? '—'}</span></div>)}</div>}</section></div></>;
+  const [description, setDescription] = useState('User access segment');
+  const [purpose, setPurpose] = useState('User access');
+  const [network, setNetwork] = useState('10.120.0.0/24');
+  const [mode, setMode] = useState<'prefix' | 'hosts'>('hosts');
+  const [target, setTarget] = useState('50');
+  const [gateway, setGateway] = useState('');
+  const [formError, setFormError] = useState('');
+  const calculation = useMemo(() => calculateVlanSubnet(network, mode, Number(target)), [mode, network, target]);
+  const subnet = calculation.subnet;
+  const duplicateIds = useMemo(() => {
+    const counts = rows.reduce<Record<number, number>>((acc, row) => ({ ...acc, [row.id]: (acc[row.id] ?? 0) + 1 }), {});
+    return new Set(Object.entries(counts).filter(([, count]) => count > 1).map(([id]) => Number(id)));
+  }, [rows]);
+  const overlapIds = useMemo(() => {
+    const conflicts = new Set<number>();
+    for (let index = 0; index < rows.length; index += 1) {
+      for (let other = index + 1; other < rows.length; other += 1) {
+        const firstStart = parseIp(rows[index].subnet.network) as number;
+        const firstEnd = parseIp(rows[index].subnet.broadcast) as number;
+        const secondStart = parseIp(rows[other].subnet.network) as number;
+        const secondEnd = parseIp(rows[other].subnet.broadcast) as number;
+        if (Math.max(firstStart, secondStart) <= Math.min(firstEnd, secondEnd)) {
+          conflicts.add(rows[index].id);
+          conflicts.add(rows[other].id);
+        }
+      }
+    }
+    return conflicts;
+  }, [rows]);
+  useEffect(() => {
+    localStorage.setItem('netkit-vlan-plan', JSON.stringify(rows));
+  }, [rows]);
+  const clearForm = () => {
+    setEditingId(null);
+    setVlanId(String(Math.max(1, ...rows.map((row) => row.id + 1))));
+    setName('');
+    setDescription('');
+    setPurpose('');
+    setNetwork('10.120.0.0/24');
+    setMode('hosts');
+    setTarget('50');
+    setGateway('');
+    setFormError('');
+  };
+  const save = () => {
+    const id = Number(vlanId);
+    const range = vlanRangeClass(id);
+    if (range === 'Invalid') return setFormError('VLAN IDs must be whole numbers from 1 through 4094. VLAN 0 and 4095 are reserved.');
+    if (!name.trim()) return setFormError('Give this VLAN a name before adding it to the plan.');
+    if (!subnet) return setFormError(calculation.error ?? 'Fix the subnet configuration before saving.');
+    if (rows.some((row) => row.id === id && row.id !== editingId)) return setFormError(`VLAN ${id} is already in this plan. Choose a unique ID.`);
+    const parsedGateway = gateway.trim() ? parseIp(gateway) : parseIp(subnet.first);
+    const subnetStart = parseIp(subnet.network) as number;
+    const subnetEnd = parseIp(subnet.broadcast) as number;
+    if (parsedGateway === null || parsedGateway < subnetStart || parsedGateway > subnetEnd) return setFormError('The gateway must be a valid IPv4 address inside the calculated subnet.');
+    const next: VlanPlanRow = {
+      id, name: name.trim(), description: description.trim(), purpose: purpose.trim() || 'Unspecified',
+      network: `${subnet.network}/${subnet.prefix}`, gateway: formatIp(parsedGateway),
+      hostRequirement: mode === 'hosts' ? Number(target) : subnet.hosts, subnet, extended: range === 'Extended',
+    };
+    setRows((current) => editingId === null ? [next, ...current] : current.map((row) => row.id === editingId ? next : row));
+    clearForm();
+  };
+  const edit = (row: VlanPlanRow) => {
+    setEditingId(row.id);
+    setVlanId(String(row.id)); setName(row.name); setDescription(row.description); setPurpose(row.purpose);
+    setNetwork(row.network); setMode('prefix'); setTarget(String(row.subnet.prefix)); setGateway(row.gateway); setFormError('');
+  };
+  const duplicate = (row: VlanPlanRow) => {
+    setEditingId(null); setVlanId(String(row.id)); setName(`${row.name}_COPY`); setDescription(row.description); setPurpose(row.purpose);
+    setNetwork(row.network); setMode('prefix'); setTarget(String(row.subnet.prefix)); setGateway(row.gateway); setFormError('Change the VLAN ID before adding this duplicate.');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const remove = (id: number) => {
+    if (window.confirm(`Remove VLAN ${id} from this local plan?`)) setRows((current) => current.filter((row) => row.id !== id));
+  };
+  const reset = () => {
+    if (rows.length && window.confirm('Clear every VLAN from this local plan?')) setRows([]);
+  };
+  const exportPlan = () => {
+    const text = ['VLAN ID\tName\tRange\tPurpose\tNetwork\tGateway\tHost requirement\tUsable hosts\tStatus', ...rows.map((row) => `${row.id}\t${row.name}\t${row.extended ? 'Extended' : 'Normal'}\t${row.purpose}\t${row.network}\t${row.gateway}\t${row.hostRequirement}\t${row.subnet.hosts}\t${duplicateIds.has(row.id) || overlapIds.has(row.id) ? 'Conflict' : 'OK'}`)].join('\n');
+    downloadText('netkit-vlan-plan.tsv', text, 'text/tab-separated-values');
+  };
+  const conflictCount = new Set([...duplicateIds, ...overlapIds]).size;
+  return <><PageHeader eyebrow="Planning / 05" title="VLAN calculator" description="Calculate VLAN subnets and keep a conflict-aware local plan for the segments in your network." action={<div className="flex gap-1"><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={exportPlan} disabled={!rows.length}><Download size={13} /> Export</Button><Button variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={reset} disabled={!rows.length}><RotateCcw size={13} /> Reset</Button></div>} />
+    <div className="grid gap-4 xl:grid-cols-[390px_minmax(0,1fr)]">
+      <section className="rounded-md border border-border bg-card p-4">
+        <SectionTitle detail={editingId === null ? 'new segment' : `editing VLAN ${editingId}`}>VLAN definition</SectionTitle>
+        <div className="grid gap-3 sm:grid-cols-2"><Field label="VLAN ID" value={vlanId} onChange={setVlanId} type="number" min={1} max={4094} /><Field label="VLAN name" value={name} onChange={setName} placeholder="EDGE_USERS" /><Field label="Description" value={description} onChange={setDescription} placeholder="User access segment" /><Field label="Purpose" value={purpose} onChange={setPurpose} placeholder="User access" /></div>
+        <div className="mt-3"><Field label="Parent network / CIDR" value={network} onChange={setNetwork} placeholder="10.120.0.0/24" /></div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Plan by</span><select value={mode} onChange={(event) => setMode(event.target.value as 'prefix' | 'hosts')} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"><option value="hosts">Usable host target</option><option value="prefix">Target CIDR prefix</option></select></label>
+          <Field label={mode === 'hosts' ? 'Desired usable hosts' : 'Target prefix'} value={target} onChange={setTarget} type="number" min={mode === 'hosts' ? 1 : 0} max={mode === 'hosts' ? 4294967294 : 32} />
+        </div>
+        <div className="mt-3"><Field label="Gateway (optional)" value={gateway} onChange={setGateway} placeholder="Uses first usable address" /></div>
+        {calculation.error && <div className="mt-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-[10px] leading-4 text-destructive" role="alert">{calculation.error}</div>}
+        {formError && <div className="mt-3 rounded border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-[10px] leading-4 text-amber-200" role="alert">{formError}</div>}
+        <div className="mt-4 flex gap-2"><Button onClick={save} className="flex-1" data-testid="button-add-vlan"><Plus size={14} /> {editingId === null ? 'Add to plan' : 'Save changes'}</Button>{editingId !== null && <Button variant="secondary" onClick={clearForm}>Cancel</Button>}</div>
+        <div className="mt-4 border-t border-border pt-3 text-[10px] leading-4 text-muted-foreground"><span className="font-mono text-primary">802.1Q ID RANGE</span><br />1–1005 normal VLAN IDs · 1006–4094 extended VLAN IDs · 0 and 4095 reserved.</div>
+      </section>
+      <section className="space-y-3">
+        {subnet ? <div className="rounded-md border border-primary/25 bg-primary/5 p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={vlanRangeClass(Number(vlanId))}>{name || 'Calculated segment'}</SectionTitle><span className="font-mono text-xs text-primary">VLAN {vlanId || '—'}</span></div><div className="grid grid-cols-2 gap-2 md:grid-cols-4">{[['Network', `${subnet.network}/${subnet.prefix}`], ['Subnet mask', subnet.mask], ['Wildcard', subnet.wildcard], ['Address range', `${subnet.first} – ${subnet.last}`], ['Broadcast', subnet.broadcast], ['Total addresses', subnet.total.toLocaleString()], ['Usable hosts', subnet.hosts.toLocaleString()], ['Gateway', gateway || subnet.first]].map(([label, value]) => <div key={label} className="rounded border border-border bg-card/70 p-2.5"><div className="text-[9px] text-muted-foreground">{label}</div><div className="mt-1 break-words font-mono text-[10px] text-foreground">{value}</div></div>)}</div><div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{mode === 'hosts' ? `${subnet.hosts - Number(target)} usable addresses remain after the requested host target.` : 'Calculated directly from the target prefix.'}</div></div> : <EmptyState icon={Network} title="Waiting for a valid VLAN subnet" text="Enter a parent network and a subnet target to preview the segment details." />}
+        <div className="rounded-md border border-border bg-card p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${rows.length} saved locally`}>VLAN plan</SectionTitle>{conflictCount > 0 && <span className="rounded border border-amber-300/30 bg-amber-500/10 px-2 py-1 font-mono text-[9px] text-amber-200">{conflictCount} conflict{conflictCount === 1 ? '' : 's'}</span>}</div>{conflictCount > 0 && <div className="mb-3 rounded border border-amber-300/25 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-100">Review highlighted rows for duplicate VLAN IDs or overlapping subnet assignments before exporting.</div>}{rows.length === 0 ? <EmptyState icon={Network} title="No VLANs in this plan" text="Add a VLAN definition to start a browser-local network plan." /> : <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">ID</th><th className="px-3 py-2 font-medium">Name / purpose</th><th className="px-3 py-2 font-medium">Network</th><th className="px-3 py-2 font-medium">Gateway</th><th className="px-3 py-2 font-medium">Hosts</th><th className="px-3 py-2 font-medium">Actions</th></tr></thead><tbody>{rows.map((row) => { const conflict = duplicateIds.has(row.id) || overlapIds.has(row.id); return <tr key={`${row.id}-${row.network}`} data-testid={`row-vlan-${row.id}`} className={`border-b border-border/70 last:border-0 ${conflict ? 'bg-amber-500/5' : 'hover:bg-secondary/35'}`}><td className="px-3 py-2.5 align-top"><div className={`font-mono text-sm ${conflict ? 'text-amber-200' : 'text-primary'}`}>{row.id}</div><div className="mt-1 font-mono text-[8px] text-muted-foreground">{row.extended ? 'EXTENDED' : 'NORMAL'}</div></td><td className="px-3 py-2.5 align-top"><div className="font-semibold text-foreground">{row.name}</div><div className="mt-1 text-[9px] text-muted-foreground">{row.purpose} · {row.description || 'No description'}</div>{duplicateIds.has(row.id) && <div className="mt-1 text-[9px] text-amber-200">Duplicate VLAN ID</div>}{overlapIds.has(row.id) && <div className="mt-1 text-[9px] text-amber-200">Overlapping subnet</div>}</td><td className="px-3 py-2.5 font-mono text-primary">{row.network}<div className="mt-1 text-[9px] text-muted-foreground">{row.subnet.mask}</div></td><td className="px-3 py-2.5 font-mono">{row.gateway}</td><td className="px-3 py-2.5 font-mono text-accent">{row.subnet.hosts.toLocaleString()}<div className="mt-1 text-[9px] text-muted-foreground">target {row.hostRequirement.toLocaleString()}</div></td><td className="px-3 py-2.5"><div className="flex gap-1"><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => edit(row)} aria-label={`Edit VLAN ${row.id}`}><Pencil size={12} /></Button><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => duplicate(row)} aria-label={`Duplicate VLAN ${row.id}`}><Copy size={12} /></Button><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => remove(row.id)} aria-label={`Delete VLAN ${row.id}`}><Trash2 size={12} className="text-destructive" /></Button></div></td></tr>; })}</tbody></table></div>}</div>
+      </section>
+    </div>
+  </>;
 }
 
 function RangePage() {
@@ -752,25 +906,84 @@ function RangePage() {
   </>;
 }
 
-const ports = [
-  { port: '20 / 21', protocol: 'TCP', service: 'FTP', detail: 'File transfer control and data' },
-  { port: '22', protocol: 'TCP', service: 'SSH', detail: 'Secure remote administration' },
-  { port: '23', protocol: 'TCP', service: 'Telnet', detail: 'Unencrypted terminal access' },
-  { port: '25', protocol: 'TCP', service: 'SMTP', detail: 'Mail transfer' },
-  { port: '53', protocol: 'TCP / UDP', service: 'DNS', detail: 'Domain name resolution' },
-  { port: '67 / 68', protocol: 'UDP', service: 'DHCP', detail: 'Dynamic host configuration' },
-  { port: '80', protocol: 'TCP', service: 'HTTP', detail: 'Web traffic' },
-  { port: '123', protocol: 'UDP', service: 'NTP', detail: 'Network time synchronization' },
-  { port: '161 / 162', protocol: 'UDP', service: 'SNMP', detail: 'Monitoring and traps' },
-  { port: '443', protocol: 'TCP', service: 'HTTPS', detail: 'Encrypted web traffic' },
-  { port: '514', protocol: 'UDP', service: 'Syslog', detail: 'Centralized event logging' },
-  { port: '3389', protocol: 'TCP', service: 'RDP', detail: 'Remote desktop services' },
+const ports: PortEntry[] = [
+  { port: 20, protocol: 'TCP', service: 'FTP data', transport: 'Connection-oriented', description: 'File Transfer Protocol data channel.', usage: 'Active-mode file transfers', notes: 'Uses port 21 for control; passive FTP may use a negotiated data range.', category: 'File transfer' },
+  { port: 21, protocol: 'TCP', service: 'FTP control', transport: 'Connection-oriented', description: 'File Transfer Protocol command channel.', usage: 'Legacy file transfer', notes: 'Credentials and data are not encrypted by FTP itself.', category: 'File transfer' },
+  { port: 22, protocol: 'TCP', service: 'SSH', transport: 'Connection-oriented', description: 'Secure Shell remote access and tunneling.', usage: 'Device administration, SCP, SFTP', notes: 'The port number alone does not prove that SSH is running.', category: 'Remote access' },
+  { port: 23, protocol: 'TCP', service: 'Telnet', transport: 'Connection-oriented', description: 'Legacy remote terminal protocol.', usage: 'Legacy device access', notes: 'Unencrypted; prefer SSH wherever possible.', category: 'Remote access' },
+  { port: 25, protocol: 'TCP', service: 'SMTP', transport: 'Connection-oriented', description: 'Simple Mail Transfer Protocol server-to-server delivery.', usage: 'Mail transfer', notes: 'Authenticated message submission commonly uses 587 instead.', category: 'Email' },
+  { port: 53, protocol: 'TCP/UDP', service: 'DNS', transport: 'Both', description: 'Domain Name System queries and responses.', usage: 'Name resolution', notes: 'UDP is common; TCP is used for zone transfers and large responses.', category: 'DNS' },
+  { port: 67, protocol: 'UDP', service: 'DHCP server', transport: 'Datagram', description: 'Dynamic Host Configuration Protocol server endpoint.', usage: 'Address assignment', notes: 'The client endpoint is port 68.', category: 'Network management' },
+  { port: 68, protocol: 'UDP', service: 'DHCP client', transport: 'Datagram', description: 'Dynamic Host Configuration Protocol client endpoint.', usage: 'Address assignment', notes: 'The server endpoint is port 67.', category: 'Network management' },
+  { port: 69, protocol: 'UDP', service: 'TFTP', transport: 'Datagram', description: 'Trivial File Transfer Protocol.', usage: 'Firmware and boot files', notes: 'No built-in authentication or encryption.', category: 'File transfer' },
+  { port: 80, protocol: 'TCP', service: 'HTTP', transport: 'Connection-oriented', description: 'Hypertext Transfer Protocol for web traffic.', usage: 'Unencrypted web services', notes: 'Redirect or protect application traffic with HTTPS when possible.', category: 'Web' },
+  { port: 110, protocol: 'TCP', service: 'POP3', transport: 'Connection-oriented', description: 'Post Office Protocol version 3 mailbox retrieval.', usage: 'Email retrieval', notes: 'TLS-enabled POP3 commonly uses port 995.', category: 'Email' },
+  { port: 123, protocol: 'UDP', service: 'NTP', transport: 'Datagram', description: 'Network Time Protocol synchronization.', usage: 'Clock synchronization', notes: 'Accurate time is important for logs, certificates, and authentication.', category: 'Network management' },
+  { port: 143, protocol: 'TCP', service: 'IMAP', transport: 'Connection-oriented', description: 'Internet Message Access Protocol mailbox access.', usage: 'Email retrieval and sync', notes: 'TLS-enabled IMAP commonly uses port 993.', category: 'Email' },
+  { port: 161, protocol: 'UDP', service: 'SNMP', transport: 'Datagram', description: 'Simple Network Management Protocol queries.', usage: 'Monitoring and inventory', notes: 'Prefer SNMPv3 for authenticated and private management.', category: 'Monitoring' },
+  { port: 162, protocol: 'UDP', service: 'SNMP traps', transport: 'Datagram', description: 'Asynchronous SNMP notifications.', usage: 'Monitoring alerts', notes: 'Trap and inform behavior depends on the SNMP manager and agent.', category: 'Monitoring' },
+  { port: 389, protocol: 'TCP/UDP', service: 'LDAP', transport: 'Both', description: 'Lightweight Directory Access Protocol.', usage: 'Directory and identity services', notes: 'LDAPS commonly uses 636; StartTLS can protect 389.', category: 'Directory / auth' },
+  { port: 443, protocol: 'TCP', service: 'HTTPS', transport: 'Connection-oriented', description: 'HTTP protected with TLS.', usage: 'Secure web services and APIs', notes: 'Modern HTTP/3 may use UDP 443 via QUIC.', category: 'Web' },
+  { port: 445, protocol: 'TCP', service: 'SMB', transport: 'Connection-oriented', description: 'Server Message Block file and printer sharing.', usage: 'Windows file services', notes: 'Restrict exposure; do not place SMB directly on the public internet.', category: 'File transfer' },
+  { port: 514, protocol: 'UDP', service: 'Syslog', transport: 'Datagram', description: 'Common syslog event transport.', usage: 'Centralized logging', notes: 'TCP or TLS syslog deployments may use different ports.', category: 'Monitoring' },
+  { port: 587, protocol: 'TCP', service: 'SMTP submission', transport: 'Connection-oriented', description: 'Authenticated mail submission from clients.', usage: 'Application and user mail submission', notes: 'Typically paired with STARTTLS and authentication.', category: 'Email' },
+  { port: 636, protocol: 'TCP', service: 'LDAPS', transport: 'Connection-oriented', description: 'LDAP over TLS.', usage: 'Secure directory services', notes: 'Validate the directory server certificate and hostname.', category: 'Directory / auth' },
+  { port: 1433, protocol: 'TCP', service: 'Microsoft SQL Server', transport: 'Connection-oriented', description: 'Common Microsoft SQL Server listener.', usage: 'Database access', notes: 'Named instances may use dynamic or configured alternate ports.', category: 'Databases' },
+  { port: 3306, protocol: 'TCP', service: 'MySQL', transport: 'Connection-oriented', description: 'Common MySQL database listener.', usage: 'Database access', notes: 'Restrict access to application or administration networks.', category: 'Databases' },
+  { port: 3389, protocol: 'TCP', service: 'RDP', transport: 'Connection-oriented', description: 'Remote Desktop Protocol.', usage: 'Windows remote administration', notes: 'Use VPN or a gateway rather than exposing RDP directly.', category: 'Remote access' },
+  { port: 5432, protocol: 'TCP', service: 'PostgreSQL', transport: 'Connection-oriented', description: 'Common PostgreSQL database listener.', usage: 'Database access', notes: 'Authentication and network policy still need to be configured separately.', category: 'Databases' },
+  { port: 6443, protocol: 'TCP', service: 'Kubernetes API', transport: 'Connection-oriented', description: 'Common secure Kubernetes API server listener.', usage: 'Cluster control plane access', notes: 'Managed clusters and distributions may expose a different endpoint.', category: 'Network management' },
+  { port: 8080, protocol: 'TCP', service: 'HTTP alternate', transport: 'Connection-oriented', description: 'Common alternate HTTP or proxy listener.', usage: 'Development servers and proxies', notes: 'Registered usage is common, not guaranteed by the port number.', category: 'Web' },
 ];
 
 function PortPage() {
   const [query, setQuery] = useState('');
-  const shown = ports.filter((item) => `${item.port} ${item.service} ${item.protocol} ${item.detail}`.toLowerCase().includes(query.toLowerCase()));
-  return <><PageHeader eyebrow="Reference / 05" title="Port reference" description="A compact list of the ports you reach for most. Search by number, protocol or service." /><section className="rounded-lg border border-border bg-card"><div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-md flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input data-testid="input-port-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search port, service or protocol..." className="h-10 w-full rounded-md border border-input bg-background/70 pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" /></div><span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{shown.length} of {ports.length} entries</span></div><div className="overflow-x-auto"><div className="min-w-[620px]"><div className="grid grid-cols-[120px_140px_1fr_1.8fr] border-b border-border bg-secondary/35 px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"><span>Port</span><span>Protocol</span><span>Service</span><span>Use</span></div>{shown.map((item) => <div key={item.port + item.service} data-testid={`row-port-${item.service}`} className="grid grid-cols-[120px_140px_1fr_1.8fr] items-center border-b border-border px-5 py-3.5 last:border-0 transition hover:bg-secondary/40"><span className="font-mono text-sm text-primary">{item.port}</span><span><span className="rounded border border-border bg-secondary px-2 py-1 font-mono text-[10px] text-muted-foreground">{item.protocol}</span></span><span className="text-sm font-semibold">{item.service}</span><span className="text-xs text-muted-foreground">{item.detail}</span></div>)}</div></div>{shown.length === 0 && <div className="p-10"><EmptyState icon={Search} title="No matching ports" text="Try a service name, a port number or TCP/UDP." /></div>}</section></>;
+  const [lookup, setLookup] = useState('');
+  const [protocol, setProtocol] = useState<'All' | 'TCP' | 'UDP' | 'TCP/UDP'>('All');
+  const [category, setCategory] = useState('All categories');
+  const [sortKey, setSortKey] = useState<'port' | 'service' | 'category'>('port');
+  const [ascending, setAscending] = useState(true);
+  const [selectedPort, setSelectedPort] = useState(443);
+  const categories = [...new Set(ports.map((item) => item.category))].sort();
+  const shown = useMemo(() => {
+    const search = (lookup || query).trim().toLowerCase();
+    return ports.filter((item) => {
+      const haystack = `${item.port} ${item.protocol} ${item.service} ${item.description} ${item.usage} ${item.notes} ${item.category}`.toLowerCase();
+      return (!search || haystack.includes(search)) && (protocol === 'All' || item.protocol === protocol) && (category === 'All categories' || item.category === category);
+    }).sort((a, b) => {
+      const comparison = sortKey === 'port' ? a.port - b.port : sortKey === 'service' ? a.service.localeCompare(b.service) : a.category.localeCompare(b.category);
+      return ascending ? comparison : -comparison;
+    });
+  }, [category, lookup, protocol, query, sortKey, ascending]);
+  const selected = ports.find((item) => item.port === selectedPort) ?? shown[0] ?? ports[0];
+  const rangeLabel = selected.port <= 1023 ? 'Well-known · 0–1023' : selected.port <= 49151 ? 'Registered · 1024–49151' : 'Dynamic / private · 49152–65535';
+  const toggleSort = (key: 'port' | 'service' | 'category') => {
+    if (sortKey === key) setAscending((value) => !value);
+    else { setSortKey(key); setAscending(true); }
+  };
+  return <><PageHeader eyebrow="Reference / 06" title="Port reference" description="Search common networking services by number, protocol, category, or usage before you open a change ticket." action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">LOCAL DATASET</span>} />
+    <section className="mb-3 rounded-md border border-border bg-card p-3 md:p-4">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,.8fr)]">
+        <label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Quick lookup</span><div className="relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input aria-label="Quick port lookup" data-testid="input-port-lookup" value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="Try 443, SSH, DNS, or remote access..." className="h-10 w-full rounded-md border border-input bg-background/70 pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" /></div></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Search details</span><input aria-label="Search port reference" data-testid="input-port-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Keywords, notes, service..." className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" /></label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <select aria-label="Filter by protocol" value={protocol} onChange={(event) => setProtocol(event.target.value as typeof protocol)} className="h-8 rounded border border-input bg-background/70 px-2 text-[10px] outline-none focus:border-primary"><option>All</option><option>TCP</option><option>UDP</option><option>TCP/UDP</option></select>
+        <select aria-label="Filter by category" value={category} onChange={(event) => setCategory(event.target.value)} className="h-8 rounded border border-input bg-background/70 px-2 text-[10px] outline-none focus:border-primary"><option>All categories</option>{categories.map((item) => <option key={item}>{item}</option>)}</select>
+        <span className="ml-auto font-mono text-[10px] text-muted-foreground">{shown.length} of {ports.length} entries</span>
+      </div>
+    </section>
+    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <section className="overflow-hidden rounded-md border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-3 py-3 md:px-4"><SectionTitle detail="click a row for details">Common services</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">SORT: {sortKey} {ascending ? '↑' : '↓'}</span></div>
+        {shown.length === 0 ? <div className="p-8"><EmptyState icon={Search} title="No matching ports" text="Try a port number, service name, category, or protocol." /></div> : <div className="overflow-x-auto"><div className="min-w-[850px]"><div className="grid grid-cols-[70px_90px_1.1fr_1.15fr_1.3fr_44px] border-b border-border bg-secondary/40 px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"><button type="button" onClick={() => toggleSort('port')} className="text-left hover:text-primary">Port {sortKey === 'port' && (ascending ? '↑' : '↓')}</button><span>Protocol</span><button type="button" onClick={() => toggleSort('service')} className="text-left hover:text-primary">Service {sortKey === 'service' && (ascending ? '↑' : '↓')}</button><span>Transport</span><span>Common usage</span><span /></div>{shown.map((item) => <div key={item.port} role="button" tabIndex={0} onClick={() => setSelectedPort(item.port)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedPort(item.port); }} data-testid={`row-port-${item.service.replace(/\s+/g, '-').toLowerCase()}`} className={`grid grid-cols-[70px_90px_1.1fr_1.15fr_1.3fr_44px] items-center border-b border-border/70 px-3 py-2.5 transition last:border-0 hover:bg-secondary/35 focus:bg-primary/5 focus:outline-none ${selected.port === item.port ? 'bg-primary/5' : ''}`}><span className="font-mono text-sm text-primary">{item.port}</span><span><span className="rounded border border-border bg-secondary px-1.5 py-1 font-mono text-[9px] text-muted-foreground">{item.protocol}</span></span><span className="text-[11px] font-semibold">{item.service}</span><span className="text-[10px] text-muted-foreground">{item.transport}</span><span className="truncate text-[10px] text-muted-foreground">{item.usage}</span><CopyButton value={`${item.port}\t${item.protocol}\t${item.service}`} label="" /></div>)}</div></div>}
+      </section>
+      <aside className="space-y-3">
+        <section className="rounded-md border border-primary/25 bg-primary/5 p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={rangeLabel}>{selected.service}</SectionTitle><span className="font-mono text-lg text-primary">{selected.port}</span></div><div className="space-y-3 text-[10px]"><div><div className="text-muted-foreground">Protocol / transport</div><div className="mt-1 font-mono text-foreground">{selected.protocol} · {selected.transport}</div></div><div><div className="text-muted-foreground">Description</div><div className="mt-1 leading-4 text-foreground">{selected.description}</div></div><div><div className="text-muted-foreground">Common usage</div><div className="mt-1 leading-4 text-foreground">{selected.usage}</div></div><div><div className="text-muted-foreground">Notes</div><div className="mt-1 leading-4 text-muted-foreground">{selected.notes}</div></div></div><CopyButton value={`${selected.port} ${selected.protocol} ${selected.service} — ${selected.description}`} label="Copy reference" /></section>
+        <section className="rounded-md border border-border bg-card p-4"><SectionTitle detail="IANA-style ranges">Port range</SectionTitle><div className="space-y-2 text-[10px]"><div className="flex items-center justify-between border-b border-border pb-2"><span className="text-muted-foreground">Well-known</span><span className="font-mono text-foreground">0–1023</span></div><div className="flex items-center justify-between border-b border-border pb-2"><span className="text-muted-foreground">Registered</span><span className="font-mono text-foreground">1024–49151</span></div><div className="flex items-center justify-between"><span className="text-muted-foreground">Dynamic / private</span><span className="font-mono text-foreground">49152–65535</span></div></div><p className="mt-3 text-[9px] leading-4 text-muted-foreground">A port number is only a convention. Confirm the listening process, transport, and device policy before making a change.</p></section>
+      </aside>
+    </div>
+  </>;
 }
 
 function CommandBuilderPage() {
