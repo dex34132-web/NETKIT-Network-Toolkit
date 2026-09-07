@@ -57,7 +57,7 @@ const navGroups = [
     items: [
       { href: '/', label: 'Home', icon: LayoutDashboard },
       { href: '/cidr-subnet', label: 'CIDR Calculator', icon: Network },
-      { href: '/cidr-subnet', label: 'Subnet Calculator', icon: Calculator },
+      { href: '/subnet-calculator', label: 'Subnet Calculator', icon: Calculator },
       { href: '/ip-tools', label: 'IP Tools', icon: Binary },
       { href: '/ip-range-tools', label: 'IP Range / Overlap', icon: GitCompare },
       { href: '/vlan-tools', label: 'VLAN Calculator', icon: Network },
@@ -70,7 +70,7 @@ const navGroups = [
 
 const toolCards = [
   { href: '/cidr-subnet', title: 'CIDR Calculator', description: 'Calculate network details, host range, broadcast address and more.', icon: Network, key: '01', accent: 'blue' },
-  { href: '/cidr-subnet', title: 'Subnet Calculator', description: 'Split networks into subnets with custom sizes.', icon: Calculator, key: '02', accent: 'green' },
+  { href: '/subnet-calculator', title: 'Subnet Calculator', description: 'Split networks into subnets with custom sizes.', icon: Calculator, key: '02', accent: 'green' },
   { href: '/ip-tools', title: 'IP Tools', description: 'IP validation, binary/decimal/hex conversion and more.', icon: Binary, key: '03', accent: 'purple' },
   { href: '/ip-range-tools', title: 'IP Range / Overlap', description: 'Check for overlaps, find ranges and compare networks.', icon: GitCompare, key: '04', accent: 'orange' },
   { href: '/vlan-tools', title: 'VLAN Calculator', description: 'Plan VLANs and calculate subnet ranges.', icon: Network, key: '05', accent: 'green' },
@@ -87,6 +87,7 @@ const themeEventName = 'netkit-theme-updated';
 
 const activityMeta: Record<string, { title: string; icon: LucideIcon; color: string }> = {
   '/cidr-subnet': { title: 'CIDR Calculator', icon: Network, color: 'text-blue-300 bg-blue-500/20' },
+  '/subnet-calculator': { title: 'Subnet Calculator', icon: Calculator, color: 'text-emerald-300 bg-emerald-500/20' },
   '/ip-tools': { title: 'IP Tools', icon: Binary, color: 'text-violet-300 bg-violet-500/20' },
   '/ip-range-tools': { title: 'IP Range / Overlap', icon: GitCompare, color: 'text-orange-300 bg-orange-500/20' },
   '/vlan-tools': { title: 'VLAN Calculator', icon: Network, color: 'text-emerald-300 bg-emerald-500/20' },
@@ -362,7 +363,7 @@ function Layout({ children }: { children: ReactNode }) {
       </div>
       <div className="flex-1 overflow-y-auto px-2.5 py-3">
         {navGroups.map((group) => <div key={group.label || 'main'} className="space-y-0.5">
-          {group.items.map(({ href, label, icon: Icon }, index) => <NavItem key={`${group.label}-${label}`} href={href} label={label} icon={Icon} active={location === href && (label !== 'Subnet Calculator' || allNav[index - 1]?.label !== 'CIDR Calculator')} />)}
+          {group.items.map(({ href, label, icon: Icon }) => <NavItem key={`${group.label}-${label}`} href={href} label={label} icon={Icon} active={location === href} />)}
         </div>)}
       </div>
       <div className="border-t border-sidebar-border px-2.5 py-2">
@@ -433,7 +434,7 @@ function Dashboard() {
 function RefinedDashboard() {
   const quickAccess: { href: string; label: string; icon: LucideIcon }[] = [
     { href: '/cidr-subnet', label: 'CIDR Calculator', icon: Network },
-    { href: '/cidr-subnet', label: 'Subnet Calculator', icon: Calculator },
+    { href: '/subnet-calculator', label: 'Subnet Calculator', icon: Calculator },
     { href: '/ip-tools', label: 'IP Tools', icon: Binary },
     { href: '/vlan-tools', label: 'VLAN Calculator', icon: Network },
   ];
@@ -497,6 +498,65 @@ function RefinedDashboard() {
 }
 
 function CidrPage() {
+  const [ip, setIp] = useState('192.168.10.0');
+  const [prefix, setPrefix] = useState('24');
+  const [result, setResult] = useState<Cidr | null>(() => calculateCidr('192.168.10.0', 24));
+  const run = () => setResult(calculateCidr(ip, Number(prefix)));
+  const error = !result;
+  const binaryAddress = result ? binaryIp(result.network) : '';
+  const binaryMask = result ? binaryIp(result.mask) : '';
+  const binaryWildcard = result ? binaryIp(result.wildcard) : '';
+  const className = result?.prefix !== undefined && result.prefix <= 7 ? 'Class A Network' : result?.prefix !== undefined && result.prefix <= 15 ? 'Class B Network' : 'Class C Network';
+  return <><PageHeader compact eyebrow="Network / 01" title="CIDR Calculator" description="Calculate network boundaries, host ranges, masks and address capacity." action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">IPv4 / CIDR</span>} />
+    <section className="mb-3 rounded-md border border-border bg-card p-3 md:p-4">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_130px_auto] md:items-end">
+        <Field label="IPv4 address" value={ip} onChange={setIp} placeholder="192.168.10.0" />
+        <Field label="CIDR prefix" value={prefix} onChange={setPrefix} type="number" min={0} max={32} />
+        <Button onClick={run} className="h-10 min-w-[105px]" data-testid="button-calculate-cidr"><Calculator size={13} /> Calculate</Button>
+      </div>
+      {error && <div className="mt-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive" role="alert">Enter a valid IPv4 address and a prefix from /0 through /32.</div>}
+    </section>
+    {result ? <div className="space-y-3">
+      <section className="rounded-md border border-border bg-card p-3 md:p-4">
+        <div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${result.network}/${result.prefix}`}>Network Details</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">{className}</span></div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_180px]">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+            {[
+              ['Network Address', `${result.network}/${result.prefix}`],
+              ['Broadcast Address', result.broadcast],
+              ['First Usable Host', result.prefix === 31 ? `${result.first} · endpoint` : result.first],
+              ['Last Usable Host', result.prefix === 31 ? `${result.last} · endpoint` : result.last],
+              ['Subnet Mask', result.mask],
+              ['Wildcard Mask', result.wildcard],
+              ['Total Addresses', result.total.toLocaleString()],
+              ['Usable Hosts', result.hosts.toLocaleString()],
+            ].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-border/70 py-1.5 last:border-0 sm:block"><span className="text-[10px] text-muted-foreground">{label}</span><span className="font-mono text-[11px] text-foreground">{value}</span></div>)}
+          </div>
+          <div className="flex flex-col items-center justify-center border-t border-border pt-4 lg:border-l lg:border-t-0 lg:pt-0">
+            <div className="relative flex h-[76px] w-[76px] items-center justify-center rounded-full border-2 border-primary bg-primary/5 font-mono text-xl text-foreground shadow-[0_0_0_5px_rgba(42,130,255,.08)]">/{result.prefix}</div>
+            <div className="mt-2 text-[10px] font-semibold text-foreground">{className}</div>
+            <div className="mt-0.5 font-mono text-[9px] text-muted-foreground">{result.mask}</div>
+            <div className="mt-4 h-1.5 w-full max-w-[140px] overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(8, Math.min(100, (result.hosts / Math.max(result.total, 1)) * 100))}%` }} /></div>
+            <div className="mt-1 flex items-center gap-1 font-mono text-[9px] text-accent"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{result.hosts.toLocaleString()} usable hosts</div>
+          </div>
+        </div>
+      </section>
+      <section className="rounded-md border border-border bg-card p-3 md:p-4">
+        <div className="mb-3 flex items-center justify-between"><SectionTitle>Binary Representation</SectionTitle><CopyButton value={`Network Address (Binary): ${binaryAddress}\nSubnet Mask (Binary): ${binaryMask}\nWildcard Mask (Binary): ${binaryWildcard}`} label="Copy All" /></div>
+        <div className="space-y-2">{[['Network Address (Binary)', binaryAddress], ['Subnet Mask (Binary)', binaryMask], ['Wildcard Mask (Binary)', binaryWildcard]].map(([label, value]) => <div key={label} className="grid gap-1.5 sm:grid-cols-[175px_1fr] sm:items-center"><span className="pl-1 text-[10px] text-muted-foreground">{label}</span><code className="overflow-x-auto rounded border border-border bg-background/60 px-2 py-1.5 font-mono text-[10px] tracking-wide text-foreground">{value}</code></div>)}</div>
+      </section>
+      <section className="rounded-md border border-border bg-card p-3 md:p-4">
+        <SectionTitle>Quick Reference</SectionTitle>
+        <div className="grid grid-cols-3 divide-x divide-border rounded border border-border bg-background/35">
+          <div className="p-3"><div className="text-[9px] text-muted-foreground">CIDR / Prefix</div><div className="mt-1 font-mono text-xs text-foreground">/{result.prefix}</div></div>
+          <div className="p-3"><div className="text-[9px] text-muted-foreground">Subnet Mask</div><div className="mt-1 font-mono text-xs text-foreground">{result.mask}</div></div>
+          <div className="p-3"><div className="text-[9px] text-muted-foreground">Usable Hosts</div><div className="mt-1 font-mono text-xs text-accent">{result.hosts.toLocaleString()}</div></div>
+        </div>
+      </section>
+    </div> : <EmptyState icon={Calculator} title="Waiting for a valid network" text="Enter an IPv4 address and prefix to see the computed boundaries." />}</>;
+}
+
+function SubnetPage() {
   const [baseInput, setBaseInput] = useState('192.168.10.0');
   const [originalPrefix, setOriginalPrefix] = useState('24');
   const [mode, setMode] = useState<SubnetMode>('prefix');
@@ -829,6 +889,7 @@ function Router() {
   return <Layout><ErrorBoundary resetKey={window.location.pathname}><Switch>
     <Route path="/" component={RefinedDashboard} />
     <Route path="/cidr-subnet" component={CidrPage} />
+    <Route path="/subnet-calculator" component={SubnetPage} />
     <Route path="/ip-tools" component={IpToolsPage} />
     <Route path="/vlan-tools" component={VlanPage} />
     <Route path="/ip-range-tools" component={RangePage} />
