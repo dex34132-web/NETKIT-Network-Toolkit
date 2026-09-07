@@ -7,7 +7,8 @@ import {
   ArrowRight, Binary, BookOpen, Calculator, Check, ChevronRight, Clipboard,
   Code2, Copy, Download, FileText, Hash, LayoutDashboard, Menu, Network,
   Pencil, Plus, Radio, RefreshCw, Search, Server, Settings2,
-  SlidersHorizontal, Sparkles, Trash2, Upload, X, type LucideIcon,
+  SlidersHorizontal, Sparkles, Trash2, Upload, X, Grid2X2, MapPin,
+  Clock3, Sun, Zap, NotebookTabs, GitCompare, TerminalSquare, CircleDot, type LucideIcon,
 } from 'lucide-react';
 import {
   Link, Route, Switch, useLocation, Router as WouterRouter,
@@ -29,38 +30,30 @@ const initialNotes: Note[] = [
 
 const navGroups = [
   {
-    label: 'Workspace',
+    label: '',
     items: [
-      { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/notes', label: 'Notes', icon: FileText },
-      { href: '/export', label: 'Export', icon: Upload },
-    ],
-  },
-  {
-    label: 'Network math',
-    items: [
-      { href: '/cidr-subnet', label: 'CIDR / subnet', icon: Calculator },
-      { href: '/ip-tools', label: 'IP conversions', icon: Binary },
-      { href: '/ip-range-tools', label: 'Range checker', icon: SlidersHorizontal },
-      { href: '/vlan-tools', label: 'VLAN planner', icon: Network },
-    ],
-  },
-  {
-    label: 'Reference',
-    items: [
-      { href: '/port-reference', label: 'Port reference', icon: Radio },
-      { href: '/command-builder', label: 'Command builder', icon: Code2 },
+      { href: '/', label: 'Home', icon: LayoutDashboard },
+      { href: '/cidr-subnet', label: 'CIDR Calculator', icon: Network },
+      { href: '/cidr-subnet', label: 'Subnet Calculator', icon: Calculator },
+      { href: '/ip-tools', label: 'IP Tools', icon: Binary },
+      { href: '/ip-range-tools', label: 'IP Range / Overlap', icon: GitCompare },
+      { href: '/vlan-tools', label: 'VLAN Calculator', icon: Network },
+      { href: '/port-reference', label: 'Port Reference', icon: FileText },
+      { href: '/command-builder', label: 'Command Builder', icon: TerminalSquare },
+      { href: '/notes', label: 'Notes', icon: NotebookTabs },
     ],
   },
 ];
 
 const toolCards = [
-  { href: '/cidr-subnet', title: 'CIDR / subnet', description: 'Break down a network in seconds.', icon: Calculator, key: '01', accent: 'cyan' },
-  { href: '/ip-tools', title: 'IP conversions', description: 'Decimal, binary, hex and back.', icon: Binary, key: '02', accent: 'lime' },
-  { href: '/vlan-tools', title: 'VLAN planner', description: 'Map IDs to clean address blocks.', icon: Network, key: '03', accent: 'amber' },
-  { href: '/ip-range-tools', title: 'Range checker', description: 'Validate spans and usable hosts.', icon: SlidersHorizontal, key: '04', accent: 'cyan' },
-  { href: '/port-reference', title: 'Port reference', description: 'Find the service before you type it.', icon: Radio, key: '05', accent: 'lime' },
-  { href: '/command-builder', title: 'Command builder', description: 'Generate syntax without tab hopping.', icon: Code2, key: '06', accent: 'amber' },
+  { href: '/cidr-subnet', title: 'CIDR Calculator', description: 'Calculate network details, host range, broadcast address and more.', icon: Network, key: '01', accent: 'blue' },
+  { href: '/cidr-subnet', title: 'Subnet Calculator', description: 'Split networks into subnets with custom sizes.', icon: Calculator, key: '02', accent: 'green' },
+  { href: '/ip-tools', title: 'IP Tools', description: 'IP validation, binary/decimal/hex conversion and more.', icon: Binary, key: '03', accent: 'purple' },
+  { href: '/ip-range-tools', title: 'IP Range / Overlap', description: 'Check for overlaps, find ranges and compare networks.', icon: GitCompare, key: '04', accent: 'orange' },
+  { href: '/vlan-tools', title: 'VLAN Calculator', description: 'Plan VLANs and calculate subnet ranges.', icon: Network, key: '05', accent: 'green' },
+  { href: '/port-reference', title: 'Port Reference', description: 'Common ports, protocols and service details.', icon: Radio, key: '06', accent: 'pink' },
+  { href: '/command-builder', title: 'Command Builder', description: 'Generate device-specific configuration commands.', icon: TerminalSquare, key: '07', accent: 'blue' },
+  { href: '/notes', title: 'Notes', description: 'Save and organize your networking notes.', icon: NotebookTabs, key: '08', accent: 'yellow' },
 ];
 
 function parseIp(value: string): number | null {
@@ -147,36 +140,51 @@ function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }
 
 function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
   const pageName = [...navGroups.flatMap((group) => group.items)].find((item) => item.href === location)?.label ?? 'Dashboard';
+  const allNav = navGroups.flatMap((group) => group.items);
   return <div className="scanline flex min-h-[100dvh] bg-background">
-    <aside className="hidden w-[252px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-      <div className="flex h-[76px] items-center gap-3 border-b border-sidebar-border px-6">
-        <div className="relative flex h-8 w-8 items-center justify-center rounded-md border border-primary/40 bg-primary/10 text-primary">
-          <span className="absolute h-2 w-2 rounded-full bg-primary pulse-dot" />
-          <span className="h-4 w-4 rounded-full border border-primary/70" />
+    <aside className="hidden w-[190px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+      <div className="flex h-[62px] items-center gap-2.5 border-b border-sidebar-border px-4">
+        <div className="relative flex h-8 w-8 items-center justify-center text-primary">
+          <Network size={29} strokeWidth={1.65} />
+          <span className="absolute bottom-[4px] right-[2px] h-1.5 w-1.5 rounded-full bg-primary" />
         </div>
-        <div><div className="font-mono text-[15px] font-medium tracking-[0.2em] text-foreground">NETKIT</div><div className="font-mono text-[9px] tracking-[0.22em] text-muted-foreground">NETWORK TOOLKIT</div></div>
+        <div><div className="text-[16px] font-bold tracking-tight text-foreground">NETKIT</div><div className="text-[7px] leading-3 text-muted-foreground">Network Engineering Toolkit</div></div>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 py-5">
-        {navGroups.map((group) => <div key={group.label} className="mb-7">
-          <div className="mb-2 px-3 font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/65">{group.label}</div>
-          <div className="space-y-0.5">{group.items.map(({ href, label, icon: Icon }) => <NavItem key={href} href={href} label={label} icon={Icon} active={location === href} />)}</div>
+      <div className="flex-1 overflow-y-auto px-2.5 py-3">
+        {navGroups.map((group) => <div key={group.label || 'main'} className="space-y-0.5">
+          {group.items.map(({ href, label, icon: Icon }, index) => <NavItem key={`${group.label}-${label}`} href={href} label={label} icon={Icon} active={location === href && (label !== 'Subnet Calculator' || allNav[index - 1]?.label !== 'CIDR Calculator')} />)}
         </div>)}
+      </div>
+      <div className="border-t border-sidebar-border px-2.5 py-2">
+        <button type="button" onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><Settings2 size={15} />Settings</button>
+        <button type="button" onClick={() => setDarkMode((enabled) => !enabled)} className="mt-1 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><span className="flex items-center gap-2"><Sun size={15} />Dark Mode</span><span className={`relative h-3.5 w-6 rounded-full transition ${darkMode ? 'bg-blue-500' : 'bg-slate-600'}`}><span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-slate-100 transition-transform ${darkMode ? 'translate-x-3' : 'translate-x-0.5'}`} /></span></button>
       </div>
     </aside>
     <div className="min-w-0 flex-1">
-      <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-border bg-background/90 px-5 backdrop-blur-md md:px-8">
-        <div className="flex items-center gap-3"><div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground md:hidden"><Menu size={16} /></div><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">NETKIT / <span className="text-primary">{pageName}</span></div><div className="mt-1 text-sm font-medium text-foreground">Network engineering workspace</div></div></div>
-        <div className="flex items-center gap-2"><Link href="/notes" className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:border-primary/50 hover:text-primary" data-testid="link-header-notes"><FileText size={15} /></Link></div>
+      <header className="sticky top-0 z-20 flex h-[62px] items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-md md:px-5">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <button type="button" onClick={() => setMenuOpen((open) => !open)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground md:hidden" aria-label="Open navigation" aria-expanded={menuOpen}><Menu size={16} /></button>
+          <div className="relative hidden max-w-[402px] flex-1 sm:block">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-300/80" />
+            <input aria-label="Search tools, commands, or keywords" placeholder="Search for tools, commands, or keywords..." className="h-[30px] w-full rounded-md border border-blue-400/15 bg-[#101e35] pl-9 pr-3 text-[10px] text-foreground outline-none placeholder:text-slate-400/80 focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground sm:hidden">NETKIT / <span className="text-primary">{pageName}</span></div>
+        </div>
+        <div className="ml-3 flex items-center gap-4">
+          <Sun size={16} className="text-slate-300" />
+        </div>
       </header>
-      <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card/40 px-4 py-2 md:hidden">{navGroups.flatMap((group) => group.items).map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-mobile-${label}`} className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === href ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Icon size={13} />{label}</Link>)}</nav>
-      <main className="netkit-grid min-h-[calc(100dvh-76px)] px-4 py-6 md:px-8 md:py-8"><div className="mx-auto max-w-[1320px] page-enter">{children}</div></main>
+      {menuOpen && <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card/40 px-3 py-2 md:hidden">{allNav.map(({ href, label, icon: Icon }) => <Link key={`${href}-${label}`} href={href} onClick={() => setMenuOpen(false)} data-testid={`link-mobile-${label}`} className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === href ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Icon size={13} />{label}</Link>)}</nav>}
+      <main className="netkit-grid min-h-[calc(100dvh-62px)] px-3 py-3 md:px-5 md:py-3"><div className="mx-auto max-w-[1160px] page-enter">{children}</div></main>
     </div>
   </div>;
 }
 
 function NavItem({ href, label, icon: Icon, active }: { href: string; label: string; icon: LucideIcon; active: boolean }) {
-  return <Link href={href} data-testid={`link-nav-${label}`} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] transition-all ${active ? 'bg-primary/12 font-semibold text-primary' : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}><Icon size={16} strokeWidth={active ? 2.2 : 1.7} /><span className="flex-1">{label}</span>{active && <ChevronRight size={13} className="opacity-70" />}</Link>;
+  return <Link href={href} data-testid={`link-nav-${label}`} className={`group flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[10px] transition-all ${active ? 'bg-[#12396f] font-semibold text-foreground shadow-[inset_0_0_0_1px_rgba(70,143,255,.1)]' : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}><Icon size={15} strokeWidth={active ? 2.1 : 1.7} className={active ? 'text-blue-300' : ''} /><span className="flex-1">{label}</span></Link>;
 }
 
 function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
@@ -202,9 +210,80 @@ function Dashboard() {
       <section className="relative overflow-hidden rounded-lg border border-border bg-card p-5 md:p-6"><div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-primary/5 blur-3xl" /><div className="relative"><div className="mb-5 flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary">Quick calculation</div><h2 className="mt-1 text-lg font-semibold">Subnet a network</h2></div><span className="rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary">IPv4 / CIDR</span></div><div className="grid gap-3 sm:grid-cols-[1fr_108px_auto] sm:items-end"><Field label="Network address" value={quickIp} onChange={setQuickIp} placeholder="192.168.1.0" /><Field label="Prefix" value={quickPrefix} onChange={setQuickPrefix} type="number" min={0} max={32} /><Button onClick={run} data-testid="button-dashboard-calculate"><Sparkles size={15} /> Calculate</Button></div>{result ? <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4 border-t border-border pt-5 sm:grid-cols-4"><Stat label="Network" value={`${result.network}/${result.prefix}`} /><Stat label="Broadcast" value={result.broadcast} /><Stat label="Usable hosts" value={result.hosts.toLocaleString()} accent="text-accent" /><Stat label="Netmask" value={result.mask} /></div> : <div className="mt-5 rounded border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">Enter a valid IPv4 address and prefix from 0 to 32.</div>}</div></section>
       <section className="rounded-lg border border-border bg-card p-5 md:p-6"><div className="mb-5 flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">Workspace pulse</div><h2 className="mt-1 text-lg font-semibold">Your toolkit at a glance</h2></div><Settings2 size={18} className="text-muted-foreground" /></div><div className="grid grid-cols-2 gap-px overflow-hidden rounded border border-border bg-border"><div className="bg-card p-4"><div className="font-mono text-2xl text-primary">08</div><div className="mt-1 text-xs text-muted-foreground">instruments ready</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-accent">{notes.length.toString().padStart(2, '0')}</div><div className="mt-1 text-xs text-muted-foreground">local notes</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-amber-300">24</div><div className="mt-1 text-xs text-muted-foreground">common ports</div></div><div className="bg-card p-4"><div className="font-mono text-2xl text-sky-300">0 ms</div><div className="mt-1 text-xs text-muted-foreground">network overhead</div></div></div><Link href="/command-builder" className="mt-5 flex items-center justify-between border-t border-border pt-4 text-xs text-muted-foreground transition hover:text-primary" data-testid="link-dashboard-command"><span className="flex items-center gap-2"><Code2 size={14} /> Build a change command</span><ArrowRight size={14} /></Link></section>
     </div>
-    <section className="mt-8"><SectionTitle detail="6 instruments">Network tools</SectionTitle><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{toolCards.map((tool, index) => <Link key={tool.href} href={tool.href} data-testid={`card-tool-${tool.key}`} className={`group page-enter stagger-${Math.min(index + 1, 3)} relative flex min-h-[132px] flex-col justify-between overflow-hidden rounded-lg border border-border bg-card p-4 transition duration-200 hover:-translate-y-0.5 hover:border-primary/45 hover:bg-card/80`}><div className="flex items-start justify-between"><div className={`flex h-9 w-9 items-center justify-center rounded-md border ${tool.accent === 'cyan' ? 'border-primary/25 bg-primary/10 text-primary' : tool.accent === 'lime' ? 'border-accent/25 bg-accent/10 text-accent' : 'border-amber-300/25 bg-amber-300/10 text-amber-300'}`}><tool.icon size={17} /></div><span className="font-mono text-[10px] text-muted-foreground/60">{tool.key}</span></div><div><div className="flex items-center justify-between"><h3 className="text-sm font-semibold group-hover:text-primary">{tool.title}</h3><ArrowRight size={14} className="text-muted-foreground transition group-hover:translate-x-1 group-hover:text-primary" /></div><p className="mt-1 text-xs text-muted-foreground">{tool.description}</p></div></Link>)}</div></section>
+    <section className="mt-8"><SectionTitle detail="6 instruments">Network tools</SectionTitle><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{toolCards.map((tool, index) => <Link key={tool.key} href={tool.href} data-testid={`card-tool-${tool.key}`} className={`group page-enter stagger-${Math.min(index + 1, 3)} relative flex min-h-[132px] flex-col justify-between overflow-hidden rounded-lg border border-border bg-card p-4 transition duration-200 hover:-translate-y-0.5 hover:border-primary/45 hover:bg-card/80`}><div className="flex items-start justify-between"><div className={`flex h-9 w-9 items-center justify-center rounded-md border ${tool.accent === 'cyan' ? 'border-primary/25 bg-primary/10 text-primary' : tool.accent === 'lime' ? 'border-accent/25 bg-accent/10 text-accent' : 'border-amber-300/25 bg-amber-300/10 text-amber-300'}`}><tool.icon size={17} /></div><span className="font-mono text-[10px] text-muted-foreground/60">{tool.key}</span></div><div><div className="flex items-center justify-between"><h3 className="text-sm font-semibold group-hover:text-primary">{tool.title}</h3><ArrowRight size={14} className="text-muted-foreground transition group-hover:translate-x-1 group-hover:text-primary" /></div><p className="mt-1 text-xs text-muted-foreground">{tool.description}</p></div></Link>)}</div></section>
     <section className="mt-8 grid gap-5 lg:grid-cols-[1fr_1fr]"><div><SectionTitle detail="local state">Recent notes</SectionTitle><div className="overflow-hidden rounded-lg border border-border bg-card">{notes.map((note) => <Link href="/notes" key={note.id} data-testid={`row-dashboard-note-${note.id}`} className="flex items-center gap-3 border-b border-border px-4 py-3.5 transition last:border-b-0 hover:bg-secondary/50"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border bg-secondary font-mono text-[10px] text-primary">{String(note.id).padStart(2, '0')}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{note.title}</div><div className="mt-0.5 truncate text-xs text-muted-foreground">{note.body}</div></div><span className="hidden font-mono text-[10px] text-muted-foreground sm:block">{note.updated}</span></Link>)}</div></div><div><SectionTitle detail="shortcuts">Quick tools</SectionTitle><div className="grid grid-cols-2 gap-2"><Link href="/port-reference" className="rounded-lg border border-border bg-card p-4 transition hover:border-primary/40" data-testid="card-quick-port"><div className="mb-5 flex items-center justify-between"><Radio size={16} className="text-accent" /><span className="font-mono text-[10px] text-muted-foreground">CTRL K</span></div><div className="text-sm font-semibold">Port reference</div><div className="mt-1 text-xs text-muted-foreground">TCP, UDP and service notes</div></Link><Link href="/ip-tools" className="rounded-lg border border-border bg-card p-4 transition hover:border-primary/40" data-testid="card-quick-convert"><div className="mb-5 flex items-center justify-between"><Binary size={16} className="text-primary" /><span className="font-mono text-[10px] text-muted-foreground">IPV4</span></div><div className="text-sm font-semibold">Convert an address</div><div className="mt-1 text-xs text-muted-foreground">See every representation</div></Link></div></div></section>
   </>;
+}
+
+function RefinedDashboard() {
+  const quickAccess: { href: string; label: string; icon: LucideIcon }[] = [
+    { href: '/cidr-subnet', label: 'CIDR Calculator', icon: Network },
+    { href: '/cidr-subnet', label: 'Subnet Calculator', icon: Calculator },
+    { href: '/ip-tools', label: 'IP Tools', icon: Binary },
+    { href: '/vlan-tools', label: 'VLAN Calculator', icon: Network },
+  ];
+  const activity = [
+    { title: 'CIDR Calculator', detail: 'Used 2 hours ago', href: '/cidr-subnet', icon: Network, color: 'text-blue-300 bg-blue-500/20' },
+    { title: 'Subnet Calculator', detail: 'Used 4 hours ago', href: '/cidr-subnet', icon: Calculator, color: 'text-emerald-300 bg-emerald-500/20' },
+    { title: 'VLAN Calculator', detail: 'Used 1 day ago', href: '/vlan-tools', icon: Network, color: 'text-sky-300 bg-sky-500/20' },
+    { title: 'Notes', detail: 'Updated 2 days ago', href: '/notes', icon: NotebookTabs, color: 'text-amber-300 bg-amber-500/20' },
+  ];
+  const accentStyles: Record<string, string> = {
+    blue: 'border-blue-400/20 bg-blue-500/15 text-blue-300',
+    green: 'border-emerald-400/20 bg-emerald-500/15 text-emerald-300',
+    purple: 'border-violet-400/20 bg-violet-500/15 text-violet-300',
+    orange: 'border-orange-400/20 bg-orange-500/15 text-orange-300',
+    pink: 'border-pink-400/20 bg-pink-500/15 text-pink-300',
+    yellow: 'border-amber-400/20 bg-amber-500/15 text-amber-300',
+  };
+  return <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_196px]">
+    <div className="min-w-0">
+      <section className="relative mb-4 h-[146px] overflow-hidden rounded-md border border-blue-400/20 bg-[linear-gradient(110deg,#0c2749,#102f59_62%,#123b69)] px-6 py-5">
+        <div className="relative z-10">
+          <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-blue-200">Welcome to</div>
+          <h1 className="mt-1 text-[30px] font-bold leading-none tracking-tight text-slate-100">NET<span className="text-blue-400">KIT</span></h1>
+          <p className="mt-2 text-[12px] text-slate-200">Your all-in-one network engineering toolkit.</p>
+          <div className="mt-3 flex gap-4 text-[8px] text-blue-200/75"><span>Calculate</span><span>Configure</span><span>Troubleshoot</span><span>Simplify</span></div>
+        </div>
+        <div className="absolute right-3 top-0 h-full w-[44%] opacity-80">
+          <svg viewBox="0 0 260 150" className="h-full w-full" aria-hidden="true">
+            <g fill="none" stroke="#4d9cff" strokeOpacity=".35" strokeWidth="1"><path d="M25 102 75 72 123 114 178 87 228 111M75 72 91 27 154 39 178 87M154 39 211 49 228 111" /><circle cx="151" cy="72" r="25" /><ellipse cx="151" cy="72" rx="10" ry="25" /><path d="M126 72h50M132 59h38M132 85h38" /></g>
+            <g fill="#10294e" stroke="#4d9cff" strokeOpacity=".65"><rect x="15" y="91" width="29" height="22" rx="4" /><rect x="78" y="15" width="29" height="22" rx="4" /><rect x="169" y="77" width="31" height="24" rx="4" /><rect x="211" y="104" width="28" height="18" rx="4" /></g>
+            <g fill="#64adff"><circle cx="75" cy="72" r="2.5" /><circle cx="91" cy="27" r="2.5" /><circle cx="211" cy="49" r="2.5" /><circle cx="228" cy="111" r="2.5" /></g>
+          </svg>
+        </div>
+      </section>
+      <section>
+        <div className="mb-2 flex items-center gap-2"><Grid2X2 size={17} className="text-slate-200" /><h2 className="text-[15px] font-semibold">Network Tools</h2></div>
+        <p className="mb-2 pl-[25px] text-[9px] text-muted-foreground">Essential tools for everyday network engineering tasks.</p>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {toolCards.map((tool) => <Link key={tool.key} href={tool.href} data-testid={`card-tool-${tool.key}`} className="group relative flex min-h-[124px] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-3 transition hover:-translate-y-0.5 hover:border-blue-400/45 hover:bg-[#101d32]">
+            <div className="flex items-start justify-between"><div className={`flex h-9 w-9 items-center justify-center rounded-md border ${accentStyles[tool.accent]}`}><tool.icon size={18} /></div><span className="font-mono text-[9px] text-muted-foreground/60">{tool.key}</span></div>
+            <div><div className="flex items-center justify-between gap-1"><h3 className="truncate text-[10px] font-semibold group-hover:text-blue-300">{tool.title}</h3><ArrowRight size={12} className="shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-blue-300" /></div><p className="mt-1 line-clamp-2 text-[8px] leading-[1.35] text-muted-foreground">{tool.description}</p></div>
+          </Link>)}
+        </div>
+      </section>
+      <section className="mt-3 rounded-md border border-border bg-card p-3">
+        <div className="mb-2 flex items-center gap-2"><Zap size={16} className="text-blue-300" /><div><h2 className="text-[13px] font-semibold">Quick Access</h2><p className="text-[8px] text-muted-foreground">Jump straight into the tools you use most.</p></div></div>
+        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">{quickAccess.map(({ href, label, icon: Icon }) => <Link key={label} href={href} className="flex items-center justify-between rounded border border-border bg-[#0d1a2c] px-2 py-1.5 text-[8px] text-slate-300 transition hover:border-blue-400/40 hover:text-blue-200"><span className="flex items-center gap-1.5"><Icon size={12} className="text-blue-300" />{label}</span><ChevronRight size={11} className="text-muted-foreground" /></Link>)}</div>
+      </section>
+    </div>
+    <aside className="space-y-3">
+      <section className="rounded-md border border-border bg-card p-3">
+        <div className="mb-3 flex items-center gap-2"><Zap size={15} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Quick Info</h2></div>
+        <div className="space-y-3 text-[8px]">
+          <div className="flex gap-2"><MapPin size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Private IP Ranges</div><p className="mt-1 leading-4 text-muted-foreground">10.0.0.0/8, 172.16.0.0/12,<br />192.168.0.0/16</p></div></div>
+          <div className="flex gap-2"><CircleDot size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Common Subnet Masks</div><p className="mt-1 leading-4 text-muted-foreground">/24&nbsp;&nbsp;255.255.255.0<br />/16&nbsp;&nbsp;255.255.0.0<br />/8&nbsp;&nbsp;&nbsp;255.0.0.0</p></div></div>
+          <div className="flex gap-2"><Server size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Well Known Ports</div><p className="mt-1 leading-4 text-muted-foreground">HTTP&nbsp;&nbsp;80 &nbsp; HTTPS&nbsp;&nbsp;443<br />SSH&nbsp;&nbsp;&nbsp;22 &nbsp; DNS&nbsp;&nbsp;&nbsp;53</p></div></div>
+        </div>
+        <Link href="/port-reference" className="mt-3 flex items-center gap-1 text-[8px] text-blue-300 hover:text-blue-200">View More <ArrowRight size={11} /></Link>
+      </section>
+      <section className="rounded-md border border-border bg-card p-3">
+        <div className="mb-3 flex items-center gap-2"><Clock3 size={14} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Recent Activity</h2></div>
+        <div className="space-y-3">{activity.map(({ title, detail, href, icon: Icon, color }) => <Link key={title} href={href} className="flex items-center gap-2"><span className={`flex h-7 w-7 items-center justify-center rounded ${color}`}><Icon size={14} /></span><span className="min-w-0"><span className="block truncate text-[9px] font-medium text-slate-200">{title}</span><span className="mt-0.5 block text-[8px] text-muted-foreground">{detail}</span></span></Link>)}</div>
+      </section>
+    </aside>
+  </div>;
 }
 
 function CidrPage() {
@@ -333,7 +412,7 @@ function NotFoundPage() {
 
 function Router() {
   return <Layout><ErrorBoundary resetKey={window.location.pathname}><Switch>
-    <Route path="/" component={Dashboard} />
+    <Route path="/" component={RefinedDashboard} />
     <Route path="/cidr-subnet" component={CidrPage} />
     <Route path="/ip-tools" component={IpToolsPage} />
     <Route path="/vlan-tools" component={VlanPage} />
