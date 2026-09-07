@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "NETKIT Network Toolkit"
+description = "A dark, focused network engineering toolkit with routed calculators, references, notes, command generation, and export utilities for everyday network work."
+version = "1.0.0"
+id = "artifacts/netkit"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19465
+
+[services.development]
+run = "pnpm --filter @workspace/netkit run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/netkit", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/netkit/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19465"
+BASE_PATH = "/"

@@ -1,6 +1,6 @@
-# [Project name]
+# NETKIT Network Toolkit
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+NETKIT is a dark, responsive network engineering workspace for subnet math, IP conversion, VLAN planning, port references, command generation, notes, and export.
 
 ## Run & Operate
 
@@ -22,23 +22,31 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/netkit/src/App.tsx` — routed pages, local calculators, notes state, shared shell, and navigation
+- `artifacts/netkit/src/index.css` — NETKIT theme tokens, grid texture, responsive styles, and motion
+- `artifacts/netkit/src/pages/not-found.tsx` — fallback route
+- `attached_assets/image_1788787684507.png` — original visual reference
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first release is frontend-only and keeps calculator, notes, and export state in the browser; no external services are required.
+- Wouter provides the route-aware shell so every tool is directly addressable and navigation remains lightweight.
+- Network calculations use deterministic client-side IPv4 helpers so results appear immediately while typing and remain usable offline.
+- The UI intentionally removes the reference image's greeting, quote, and offline/status messaging.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+NETKIT includes a dashboard, CIDR/subnet calculator, IP conversions, VLAN planner, IP range checker, port reference, command builder, notes workspace, and export workspace. Notes persist in localStorage.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Match the provided dark NETKIT reference while improving it into a responsive, navigable application.
+- Do not include the reference greeting, bottom-right quote, or offline/local-status UI.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Vite build checks require `PORT` and `BASE_PATH`; the managed workflow supplies them automatically.
+- Use the managed `artifacts/netkit: web` workflow for preview instead of running the root workspace dev command.
 
 ## Pointers
 
