@@ -701,13 +701,11 @@ function Dashboard() {
 }
 
 function RefinedDashboard() {
-  const quickAccess: { href: string; label: string; icon: LucideIcon }[] = [
-    { href: '/cidr-subnet', label: 'CIDR Calculator', icon: Network },
-    { href: '/subnet-calculator', label: 'Subnet Calculator', icon: Calculator },
-    { href: '/ip-tools', label: 'IP Tools', icon: Binary },
-    { href: '/vlan-tools', label: 'VLAN Calculator', icon: Network },
-  ];
-  const activity = useActivity();
+  const [quickIp, setQuickIp] = useState('192.168.1.0');
+  const [quickPrefix, setQuickPrefix] = useState('24');
+  const [result, setResult] = useState<Cidr | null>(() => calculateCidr('192.168.1.0', 24));
+  const [notes] = useState(initialNotes);
+  const run = () => setResult(calculateCidr(quickIp, Number(quickPrefix)));
   const accentStyles: Record<string, string> = {
     blue: 'border-blue-400/20 bg-blue-500/15 text-blue-300',
     green: 'border-emerald-400/20 bg-emerald-500/15 text-emerald-300',
@@ -716,51 +714,38 @@ function RefinedDashboard() {
     pink: 'border-pink-400/20 bg-pink-500/15 text-pink-300',
     yellow: 'border-amber-400/20 bg-amber-500/15 text-amber-300',
   };
-  return <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_196px]">
+  const quickTools = [
+    { href: '/subnet-calculator', label: 'Subnet Calculator', detail: 'e.g. 192.168.1.0/24', icon: Calculator, color: 'text-accent bg-accent/10 border-accent/25' },
+    { href: '/ip-tools', label: 'IP to Binary', detail: 'e.g. 192.168.1.1', icon: Binary, color: 'text-primary bg-primary/10 border-primary/25' },
+    { href: '/vlan-tools', label: 'VLAN Calculator', detail: 'e.g. 10, 20, 30', icon: Network, color: 'text-violet-300 bg-violet-500/10 border-violet-400/25' },
+    { href: '/port-reference', label: 'Port Lookup', detail: 'e.g. 22 (SSH)', icon: Radio, color: 'text-amber-300 bg-amber-500/10 border-amber-400/25' },
+  ];
+  return <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_250px]">
     <div className="min-w-0">
-      <section className="netkit-hero relative mb-4 h-[146px] overflow-hidden rounded-md border border-blue-400/20 px-6 py-5">
-        <div className="relative z-10">
-          <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-blue-200">Welcome to</div>
-          <h1 className="mt-1 text-[30px] font-bold leading-none tracking-tight text-foreground">NET<span className="text-blue-400">KIT</span></h1>
-          <p className="mt-2 text-[12px] text-foreground/80">Your all-in-one network engineering toolkit.</p>
-          <div className="mt-3 flex gap-4 text-[8px] text-blue-200/75"><span>Calculate</span><span>Configure</span><span>Troubleshoot</span><span>Simplify</span></div>
-        </div>
-        <div className="absolute right-3 top-0 h-full w-[44%] opacity-80">
-          <svg viewBox="0 0 260 150" className="h-full w-full" aria-hidden="true">
-            <g fill="none" stroke="#4d9cff" strokeOpacity=".35" strokeWidth="1"><path d="M25 102 75 72 123 114 178 87 228 111M75 72 91 27 154 39 178 87M154 39 211 49 228 111" /><circle cx="151" cy="72" r="25" /><ellipse cx="151" cy="72" rx="10" ry="25" /><path d="M126 72h50M132 59h38M132 85h38" /></g>
-            <g fill="#10294e" stroke="#4d9cff" strokeOpacity=".65"><rect x="15" y="91" width="29" height="22" rx="4" /><rect x="78" y="15" width="29" height="22" rx="4" /><rect x="169" y="77" width="31" height="24" rx="4" /><rect x="211" y="104" width="28" height="18" rx="4" /></g>
-            <g fill="#64adff"><circle cx="75" cy="72" r="2.5" /><circle cx="91" cy="27" r="2.5" /><circle cx="211" cy="49" r="2.5" /><circle cx="228" cy="111" r="2.5" /></g>
-          </svg>
-        </div>
+      <div className="mb-5"><h1 className="text-3xl font-semibold tracking-tight text-foreground">Welcome to <span className="text-primary">NETKIT</span></h1><p className="mt-1 text-sm text-muted-foreground">Your all-in-one network engineering toolkit</p></div>
+      <section className="mb-6 rounded-lg border border-border bg-card p-5">
+        <div className="mb-4 flex items-center gap-3"><Sparkles size={21} className="text-primary" /><div><h2 className="text-base font-semibold">Quick Calculate</h2><p className="text-[11px] text-muted-foreground">Get results instantly without navigating through menus.</p></div></div>
+        <div className="grid gap-2 sm:grid-cols-[158px_1fr_auto] sm:items-end"><label className="block"><span className="sr-only">Calculation type</span><select className="h-9 w-full rounded-md border border-input bg-secondary px-3 text-xs text-foreground"><option>CIDR / Subnet</option></select></label><input aria-label="Quick network address" value={`${quickIp}/${quickPrefix}`} onChange={(event) => { const [ip, prefix] = event.target.value.split('/'); setQuickIp(ip); setQuickPrefix(prefix ?? '24'); }} className="h-9 w-full rounded-md border border-input bg-secondary px-3 font-mono text-xs text-foreground outline-none focus:border-primary" /><Button onClick={run} className="h-9 px-5" data-testid="button-dashboard-calculate">Calculate</Button></div>
+        {result && <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-3 text-[10px] text-muted-foreground sm:grid-cols-4"><span>Network <b className="ml-1 font-mono text-foreground">{result.network}/{result.prefix}</b></span><span>Broadcast <b className="ml-1 font-mono text-foreground">{result.broadcast}</b></span><span>Hosts <b className="ml-1 font-mono text-accent">{result.hosts.toLocaleString()}</b></span><span>Mask <b className="ml-1 font-mono text-foreground">{result.mask}</b></span></div>}
       </section>
       <section>
-        <div className="mb-2 flex items-center gap-2"><Grid2X2 size={17} className="text-slate-200" /><h2 className="text-[15px] font-semibold">Network Tools</h2></div>
-        <p className="mb-2 pl-[25px] text-[9px] text-muted-foreground">Essential tools for everyday network engineering tasks.</p>
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="mb-3"><h2 className="text-base font-semibold">Network Tools</h2><p className="mt-1 text-[11px] text-muted-foreground">Essential tools for everyday network engineering tasks.</p></div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           {toolCards.map((tool) => <Link key={tool.key} href={tool.href} data-testid={`card-tool-${tool.key}`} className="group relative flex min-h-[124px] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-3 transition hover:-translate-y-0.5 hover:border-blue-400/45 hover:bg-card/80">
             <div className="flex items-start justify-between"><div className={`flex h-9 w-9 items-center justify-center rounded-md border ${accentStyles[tool.accent]}`}><tool.icon size={18} /></div><span className="font-mono text-[9px] text-muted-foreground/60">{tool.key}</span></div>
             <div><div className="flex items-center justify-between gap-1"><h3 className="truncate text-[10px] font-semibold group-hover:text-blue-300">{tool.title}</h3><ArrowRight size={12} className="shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-blue-300" /></div><p className="mt-1 line-clamp-2 text-[8px] leading-[1.35] text-muted-foreground">{tool.description}</p></div>
           </Link>)}
         </div>
       </section>
-      <section className="mt-3 rounded-md border border-border bg-card p-3">
-        <div className="mb-2 flex items-center gap-2"><Zap size={16} className="text-blue-300" /><div><h2 className="text-[13px] font-semibold">Quick Access</h2><p className="text-[8px] text-muted-foreground">Jump straight into the tools you use most.</p></div></div>
-        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">{quickAccess.map(({ href, label, icon: Icon }) => <Link key={label} href={href} className="flex items-center justify-between rounded border border-border bg-secondary px-2 py-1.5 text-[8px] text-secondary-foreground transition hover:border-blue-400/40 hover:text-primary"><span className="flex items-center gap-1.5"><Icon size={12} className="text-blue-300" />{label}</span><ChevronRight size={11} className="text-muted-foreground" /></Link>)}</div>
-      </section>
     </div>
     <aside className="space-y-3">
       <section className="rounded-md border border-border bg-card p-3">
-        <div className="mb-3 flex items-center gap-2"><Zap size={15} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Quick Info</h2></div>
-        <div className="space-y-3 text-[8px]">
-          <div className="flex gap-2"><MapPin size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Private IP ranges Â· RFC 1918</div><p className="mt-1 leading-4 text-muted-foreground">10.0.0.0/8<br />172.16.0.0/12<br />192.168.0.0/16</p></div></div>
-          <div className="flex gap-2"><CircleDot size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Common subnet masks</div><p className="mt-1 leading-4 text-muted-foreground">/8 Â· 255.0.0.0<br />/16 Â· 255.255.0.0<br />/24 Â· 255.255.255.0</p></div></div>
-          <div className="flex gap-2"><Server size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Well-known ports</div><p className="mt-1 leading-4 text-muted-foreground">SSH 22 Â· DNS 53<br />HTTP 80 Â· HTTPS 443</p></div></div>
-        </div>
-        <Link href="/port-reference" className="mt-3 flex items-center gap-1 text-[8px] text-blue-300 hover:text-blue-200">View More <ArrowRight size={11} /></Link>
+        <h2 className="mb-3 text-[12px] font-semibold">Quick Tools</h2>
+        <div className="space-y-2">{quickTools.map(({ href, label, detail, icon: Icon, color }) => <Link key={label} href={href} className="flex items-center gap-2 rounded-md p-1.5 transition hover:bg-secondary/50"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${color}`}><Icon size={16} /></span><span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-medium">{label}</span><span className="block truncate text-[9px] text-muted-foreground">{detail}</span></span><ArrowRight size={12} className="text-muted-foreground" /></Link>)}</div>
       </section>
       <section className="rounded-md border border-border bg-card p-3">
-        <div className="mb-3 flex items-center gap-2"><Clock3 size={14} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Recent Activity</h2></div>
-        {activity.length === 0 ? <div className="rounded border border-dashed border-border px-2 py-3 text-[9px] leading-4 text-muted-foreground">No tool activity yet. Open a tool and it will appear here.</div> : <div className="space-y-3">{activity.slice(0, 4).map((entry) => { const meta = activityMeta[entry.href]; if (!meta) return null; const Icon = meta.icon; return <Link key={entry.href} href={entry.href} className="flex items-center gap-2"><span className={`flex h-7 w-7 items-center justify-center rounded ${meta.color}`}><Icon size={14} /></span><span className="min-w-0"><span className="block truncate text-[9px] font-medium text-slate-200">{meta.title}</span><span className="mt-0.5 block text-[8px] text-muted-foreground">{entry.count} {entry.count === 1 ? 'visit' : 'visits'} Â· {formatActivityTime(entry.updatedAt)}</span></span></Link>; })}</div>}
+        <div className="mb-3 flex items-center justify-between"><h2 className="text-[12px] font-semibold">Recent Notes</h2><Link href="/notes" className="text-[9px] text-primary">View all</Link></div>
+        <div className="space-y-2">{notes.slice(0, 4).map((note) => <Link key={note.id} href="/notes" className="flex items-center gap-2 border-b border-border/60 pb-2 last:border-0"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary text-primary"><FileText size={14} /></span><span className="min-w-0"><span className="block truncate text-[9px] font-medium">{note.title}</span><span className="block text-[8px] text-muted-foreground">{note.updated}</span></span></Link>)}</div>
       </section>
     </aside>
   </div>;
