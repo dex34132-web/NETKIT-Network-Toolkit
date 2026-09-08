@@ -310,8 +310,18 @@ function readThemePreference(): Theme {
 }
 
 function setThemePreference(theme: Theme) {
-  localStorage.setItem('netkit-theme', theme);
+  try {
+    localStorage.setItem('netkit-theme', theme);
+  } catch {
+    // Theme switching should still work when browser storage is unavailable.
+  }
   window.dispatchEvent(new Event(themeEventName));
+}
+
+function applyThemeToDocument(theme: Theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.documentElement.classList.toggle('light', theme === 'light');
+  document.documentElement.dataset.theme = theme;
 }
 
 function readActivity(): ActivityRecord[] {
@@ -542,6 +552,12 @@ function Button({
   return <button type={type} disabled={disabled} onClick={onClick} className={`inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${styles[variant]} ${className}`}>{children}</button>;
 }
 
+function ThemeSwitchVisual({ theme }: { theme: Theme }) {
+  return <span aria-hidden="true" className={`theme-switch ${theme === 'dark' ? 'theme-switch--dark' : 'theme-switch--light'}`}>
+    <span className="theme-switch__track"><span className="theme-switch__thumb" /></span>
+  </span>;
+}
+
 function Field({
   label, value, onChange, placeholder, type = 'text', className = '', min, max,
 }: {
@@ -566,9 +582,7 @@ function Layout({ children }: { children: ReactNode }) {
   const pageName = location === '/settings' ? 'Settings' : [...navGroups.flatMap((group) => group.items)].find((item) => item.href === location)?.label ?? 'Dashboard';
   const allNav = navGroups.flatMap((group) => group.items);
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.classList.toggle('light', theme === 'light');
-    setThemePreference(theme);
+    applyThemeToDocument(theme);
   }, [theme]);
   useEffect(() => {
     const syncTheme = () => setTheme(readThemePreference());
@@ -578,6 +592,12 @@ function Layout({ children }: { children: ReactNode }) {
   useEffect(() => {
     recordActivity(location);
   }, [location]);
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    applyThemeToDocument(nextTheme);
+    setThemePreference(nextTheme);
+  };
   return <div className="scanline flex min-h-[100dvh] bg-background">
     <aside className="hidden w-[190px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
       <div className="flex h-[62px] items-center gap-2.5 border-b border-sidebar-border px-4">
@@ -594,7 +614,7 @@ function Layout({ children }: { children: ReactNode }) {
       </div>
       <div className="border-t border-sidebar-border px-2.5 py-2">
         <Link href="/settings" onClick={() => setMenuOpen(false)} className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[10px] transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground'}`}><Settings2 size={15} />Settings</Link>
-        <button type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} className="mt-1 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}><span className="flex items-center gap-2">{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span><span className={`relative h-3.5 w-6 rounded-full transition ${theme === 'dark' ? 'bg-blue-500' : 'bg-slate-500'}`}><span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-slate-100 transition-transform ${theme === 'dark' ? 'translate-x-3' : 'translate-x-0.5'}`} /></span></button>
+        <button type="button" onClick={toggleTheme} className="mt-1 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} aria-pressed={theme === 'dark'} data-testid="button-theme-toggle"><span className="flex items-center gap-2"><span className={`theme-mode-icon ${theme === 'light' ? 'theme-mode-icon--light' : ''}`}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}</span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span><ThemeSwitchVisual theme={theme} /></button>
       </div>
     </aside>
     <div className="min-w-0 flex-1">
@@ -607,8 +627,8 @@ function Layout({ children }: { children: ReactNode }) {
           </div>
           <div className="truncate text-[10px] text-muted-foreground sm:hidden">NETKIT / <span className="text-primary">{pageName}</span></div>
         </div>
-        <div className="ml-3 flex items-center gap-4">
-          {theme === 'dark' ? <Sun size={16} className="text-muted-foreground" /> : <Moon size={16} className="text-muted-foreground" />}
+          <div className="ml-3 flex items-center gap-4">
+           <button type="button" onClick={toggleTheme} className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:border-primary/50 hover:text-primary" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} aria-pressed={theme === 'dark'} data-testid="button-header-theme-toggle" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}><span className={`theme-mode-icon ${theme === 'light' ? 'theme-mode-icon--light' : ''}`}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</span></button>
         </div>
       </header>
       {menuOpen && <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card/40 px-3 py-2 md:hidden">{allNav.map(({ href, label, icon: Icon }) => <Link key={`${href}-${label}`} href={href} onClick={() => setMenuOpen(false)} data-testid={`link-mobile-${label}`} className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === href ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Icon size={13} />{label}</Link>)}<Link href="/settings" onClick={() => setMenuOpen(false)} data-testid="link-mobile-settings" className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === '/settings' ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Settings2 size={13} />Settings</Link></nav>}
@@ -1450,6 +1470,7 @@ function SettingsPage() {
 
   const chooseTheme = (next: Theme) => {
     setTheme(next);
+    applyThemeToDocument(next);
     setThemePreference(next);
     setStatus(`${next === 'dark' ? 'Dark' : 'Light'} mode enabled.`);
   };
