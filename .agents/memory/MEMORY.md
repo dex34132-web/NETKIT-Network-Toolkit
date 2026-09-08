@@ -1,0 +1,1 @@
+- [NETKIT build environment](netkit-build-env.md) — manual Vite builds require both PORT and BASE_PATH to be supplied.
