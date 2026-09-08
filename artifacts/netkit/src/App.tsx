@@ -1,10 +1,10 @@
-﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
-  Archive, ArrowLeft, ArrowRight, Binary, BookOpen, Calculator, Check, ChevronRight, Clipboard,
+  ArrowLeft, ArrowRight, Binary, BookOpen, Calculator, Check, ChevronRight, Clipboard,
   Code2, Copy, Download, FileText, Hash, LayoutDashboard, Menu, Network,
   Pencil, Plus, Radio, RefreshCw, Search, Server, Settings2,
   SlidersHorizontal, Sparkles, Trash2, Upload, X, Grid2X2, MapPin,
@@ -310,8 +310,18 @@ function readThemePreference(): Theme {
 }
 
 function setThemePreference(theme: Theme) {
-  localStorage.setItem('netkit-theme', theme);
+  try {
+    localStorage.setItem('netkit-theme', theme);
+  } catch {
+    // Theme switching should still work when browser storage is unavailable.
+  }
   window.dispatchEvent(new Event(themeEventName));
+}
+
+function applyThemeToDocument(theme: Theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.documentElement.classList.toggle('light', theme === 'light');
+  document.documentElement.dataset.theme = theme;
 }
 
 function readActivity(): ActivityRecord[] {
@@ -475,7 +485,7 @@ function parseRangeValue(value: string): { range: IpRange | null; error?: string
     const end = parseIp(rangeParts[1]);
     if (start === null || end === null) return { range: null, error: `"${source}" contains an invalid IPv4 address.` };
     if (end < start) return { range: null, error: `"${source}" is reversed. The end address must be after the start address.` };
-    return { range: { source, start, end, startIp: formatIp(start), endIp: formatIp(end), cidr: 'â€”', mask: 'â€”', total: end - start + 1 } };
+    return { range: { source, start, end, startIp: formatIp(start), endIp: formatIp(end), cidr: '—', mask: '—', total: end - start + 1 } };
   }
 
   const parsed = parseIp(source);
@@ -527,54 +537,11 @@ function useCopy() {
   return { copied, copy };
 }
 
-function renderMarkdown(text: string): string {
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="rounded border border-border bg-background/60 p-3 font-mono text-[11px] overflow-x-auto my-3"><code>$2</code></pre>');
-  html = html.replace(/`([^`]+)`/g, '<code class="rounded border border-border bg-background/60 px-1.5 py-0.5 font-mono text-[11px]">$1</code>');
-  html = html.replace(/^### (.+)$/gm, '<h3 class="mt-4 mb-2 text-sm font-semibold text-foreground">$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2 class="mt-5 mb-2 text-base font-semibold text-foreground">$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1 class="mt-6 mb-3 text-lg font-semibold text-foreground">$1</h1>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/^- \[ \] (.+)$/gm, '<div class="flex items-start gap-2 my-0.5"><span class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border border-border"></span><span>$1</span></div>');
-  html = html.replace(/^- \[x\] (.+)$/gm, '<div class="flex items-start gap-2 my-0.5"><span class="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border border-primary bg-primary/20 flex items-center justify-center text-[8px] text-primary">\u2713</span><span>$1</span></div>');
-  html = html.replace(/^- (.+)$/gm, '<div class="flex items-start gap-2 my-0.5"><span class="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground"></span><span>$1</span></div>');
-  html = html.replace(/^(\d+)\. (.+)$/gm, '<div class="flex items-start gap-2 my-0.5"><span class="shrink-0 font-mono text-[10px] text-muted-foreground">$1.</span><span>$2</span></div>');
-  html = html.replace(/^---$/gm, '<hr class="my-4 border-border" />');
-  html = html.split('\n\n').map((p) => {
-    p = p.trim();
-    if (!p) return '';
-    if (p.startsWith('<pre') || p.startsWith('<h') || p.startsWith('<hr') || p.startsWith('<div') || p.startsWith('<table') || p.startsWith('<tr')) return p;
-    return `<p class="mb-2 leading-relaxed">${p.replace(/\n/g, '<br/>')}</p>`;
-  }).join('\n');
-  return html;
-}
-
-function exportNotesToFile(notes: Note[]): string {
-  return JSON.stringify({ exportedAt: new Date().toISOString(), app: 'NETKIT', version: 1, notes }, null, 2);
-}
-
-function importNotesFromFile(text: string): Note[] | null {
-  try {
-    const data = JSON.parse(text);
-    if (data && Array.isArray(data.notes)) {
-      return data.notes.map((note: Partial<Note>, index: number) => normalizeNote(note, index));
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function Button({
-  children, variant = 'primary', className = '', onClick, type = 'button', disabled = false, title,
+  children, variant = 'primary', className = '', onClick, type = 'button', disabled = false,
 }: {
   children: ReactNode; variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; className?: string;
-  onClick?: () => void; type?: 'button' | 'submit'; disabled?: boolean; title?: string;
+  onClick?: () => void; type?: 'button' | 'submit'; disabled?: boolean;
 }) {
   const styles = {
     primary: 'bg-primary text-primary-foreground hover:bg-primary/88',
@@ -582,7 +549,13 @@ function Button({
     ghost: 'text-muted-foreground hover:text-foreground hover:bg-secondary/70',
     danger: 'bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/20',
   };
-  return <button type={type} title={title} disabled={disabled} onClick={onClick} className={`inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${styles[variant]} ${className}`}>{children}</button>;
+  return <button type={type} disabled={disabled} onClick={onClick} className={`inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${styles[variant]} ${className}`}>{children}</button>;
+}
+
+function ThemeSwitchVisual({ theme }: { theme: Theme }) {
+  return <span aria-hidden="true" className={`theme-switch ${theme === 'dark' ? 'theme-switch--dark' : 'theme-switch--light'}`}>
+    <span className="theme-switch__track"><span className="theme-switch__thumb" /></span>
+  </span>;
 }
 
 function Field({
@@ -609,9 +582,7 @@ function Layout({ children }: { children: ReactNode }) {
   const pageName = location === '/settings' ? 'Settings' : [...navGroups.flatMap((group) => group.items)].find((item) => item.href === location)?.label ?? 'Dashboard';
   const allNav = navGroups.flatMap((group) => group.items);
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.classList.toggle('light', theme === 'light');
-    setThemePreference(theme);
+    applyThemeToDocument(theme);
   }, [theme]);
   useEffect(() => {
     const syncTheme = () => setTheme(readThemePreference());
@@ -621,6 +592,12 @@ function Layout({ children }: { children: ReactNode }) {
   useEffect(() => {
     recordActivity(location);
   }, [location]);
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    applyThemeToDocument(nextTheme);
+    setThemePreference(nextTheme);
+  };
   return <div className="scanline flex min-h-[100dvh] bg-background">
     <aside className="hidden w-[190px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
       <div className="flex h-[62px] items-center gap-2.5 border-b border-sidebar-border px-4">
@@ -637,7 +614,7 @@ function Layout({ children }: { children: ReactNode }) {
       </div>
       <div className="border-t border-sidebar-border px-2.5 py-2">
         <Link href="/settings" onClick={() => setMenuOpen(false)} className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[10px] transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${location === '/settings' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground'}`}><Settings2 size={15} />Settings</Link>
-        <button type="button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} className="mt-1 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}><span className="flex items-center gap-2">{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span><span className={`relative h-3.5 w-6 rounded-full transition ${theme === 'dark' ? 'bg-blue-500' : 'bg-slate-500'}`}><span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-slate-100 transition-transform ${theme === 'dark' ? 'translate-x-3' : 'translate-x-0.5'}`} /></span></button>
+        <button type="button" onClick={toggleTheme} className="mt-1 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[10px] text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} aria-pressed={theme === 'dark'} data-testid="button-theme-toggle"><span className="flex items-center gap-2"><span className={`theme-mode-icon ${theme === 'light' ? 'theme-mode-icon--light' : ''}`}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}</span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span><ThemeSwitchVisual theme={theme} /></button>
       </div>
     </aside>
     <div className="min-w-0 flex-1">
@@ -650,8 +627,8 @@ function Layout({ children }: { children: ReactNode }) {
           </div>
           <div className="truncate text-[10px] text-muted-foreground sm:hidden">NETKIT / <span className="text-primary">{pageName}</span></div>
         </div>
-        <div className="ml-3 flex items-center gap-4">
-          {theme === 'dark' ? <Sun size={16} className="text-muted-foreground" /> : <Moon size={16} className="text-muted-foreground" />}
+          <div className="ml-3 flex items-center gap-4">
+           <button type="button" onClick={toggleTheme} className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:border-primary/50 hover:text-primary" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} aria-pressed={theme === 'dark'} data-testid="button-header-theme-toggle" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}><span className={`theme-mode-icon ${theme === 'light' ? 'theme-mode-icon--light' : ''}`}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</span></button>
         </div>
       </header>
       {menuOpen && <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card/40 px-3 py-2 md:hidden">{allNav.map(({ href, label, icon: Icon }) => <Link key={`${href}-${label}`} href={href} onClick={() => setMenuOpen(false)} data-testid={`link-mobile-${label}`} className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === href ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Icon size={13} />{label}</Link>)}<Link href="/settings" onClick={() => setMenuOpen(false)} data-testid="link-mobile-settings" className={`flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${location === '/settings' ? 'bg-primary/15 text-primary' : 'text-muted-foreground'}`}><Settings2 size={13} />Settings</Link></nav>}
@@ -701,11 +678,13 @@ function Dashboard() {
 }
 
 function RefinedDashboard() {
-  const [quickIp, setQuickIp] = useState('192.168.1.0');
-  const [quickPrefix, setQuickPrefix] = useState('24');
-  const [result, setResult] = useState<Cidr | null>(() => calculateCidr('192.168.1.0', 24));
-  const [notes] = useState(initialNotes);
-  const run = () => setResult(calculateCidr(quickIp, Number(quickPrefix)));
+  const quickAccess: { href: string; label: string; icon: LucideIcon }[] = [
+    { href: '/cidr-subnet', label: 'CIDR Calculator', icon: Network },
+    { href: '/subnet-calculator', label: 'Subnet Calculator', icon: Calculator },
+    { href: '/ip-tools', label: 'IP Tools', icon: Binary },
+    { href: '/vlan-tools', label: 'VLAN Calculator', icon: Network },
+  ];
+  const activity = useActivity();
   const accentStyles: Record<string, string> = {
     blue: 'border-blue-400/20 bg-blue-500/15 text-blue-300',
     green: 'border-emerald-400/20 bg-emerald-500/15 text-emerald-300',
@@ -714,38 +693,51 @@ function RefinedDashboard() {
     pink: 'border-pink-400/20 bg-pink-500/15 text-pink-300',
     yellow: 'border-amber-400/20 bg-amber-500/15 text-amber-300',
   };
-  const quickTools = [
-    { href: '/subnet-calculator', label: 'Subnet Calculator', detail: 'e.g. 192.168.1.0/24', icon: Calculator, color: 'text-accent bg-accent/10 border-accent/25' },
-    { href: '/ip-tools', label: 'IP to Binary', detail: 'e.g. 192.168.1.1', icon: Binary, color: 'text-primary bg-primary/10 border-primary/25' },
-    { href: '/vlan-tools', label: 'VLAN Calculator', detail: 'e.g. 10, 20, 30', icon: Network, color: 'text-violet-300 bg-violet-500/10 border-violet-400/25' },
-    { href: '/port-reference', label: 'Port Lookup', detail: 'e.g. 22 (SSH)', icon: Radio, color: 'text-amber-300 bg-amber-500/10 border-amber-400/25' },
-  ];
-  return <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_250px]">
+  return <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_196px]">
     <div className="min-w-0">
-      <div className="mb-5"><h1 className="text-3xl font-semibold tracking-tight text-foreground">Welcome to <span className="text-primary">NETKIT</span></h1><p className="mt-1 text-sm text-muted-foreground">Your all-in-one network engineering toolkit</p></div>
-      <section className="mb-6 rounded-lg border border-border bg-card p-5">
-        <div className="mb-4 flex items-center gap-3"><Sparkles size={21} className="text-primary" /><div><h2 className="text-base font-semibold">Quick Calculate</h2><p className="text-[11px] text-muted-foreground">Get results instantly without navigating through menus.</p></div></div>
-        <div className="grid gap-2 sm:grid-cols-[158px_1fr_auto] sm:items-end"><label className="block"><span className="sr-only">Calculation type</span><select className="h-9 w-full rounded-md border border-input bg-secondary px-3 text-xs text-foreground"><option>CIDR / Subnet</option></select></label><input aria-label="Quick network address" value={`${quickIp}/${quickPrefix}`} onChange={(event) => { const [ip, prefix] = event.target.value.split('/'); setQuickIp(ip); setQuickPrefix(prefix ?? '24'); }} className="h-9 w-full rounded-md border border-input bg-secondary px-3 font-mono text-xs text-foreground outline-none focus:border-primary" /><Button onClick={run} className="h-9 px-5" data-testid="button-dashboard-calculate">Calculate</Button></div>
-        {result && <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-3 text-[10px] text-muted-foreground sm:grid-cols-4"><span>Network <b className="ml-1 font-mono text-foreground">{result.network}/{result.prefix}</b></span><span>Broadcast <b className="ml-1 font-mono text-foreground">{result.broadcast}</b></span><span>Hosts <b className="ml-1 font-mono text-accent">{result.hosts.toLocaleString()}</b></span><span>Mask <b className="ml-1 font-mono text-foreground">{result.mask}</b></span></div>}
+      <section className="netkit-hero relative mb-4 h-[146px] overflow-hidden rounded-md border border-blue-400/20 px-6 py-5">
+        <div className="relative z-10">
+          <div className="font-mono text-[9px] uppercase tracking-[0.24em] text-blue-200">Welcome to</div>
+          <h1 className="mt-1 text-[30px] font-bold leading-none tracking-tight text-foreground">NET<span className="text-blue-400">KIT</span></h1>
+          <p className="mt-2 text-[12px] text-foreground/80">Your all-in-one network engineering toolkit.</p>
+          <div className="mt-3 flex gap-4 text-[8px] text-blue-200/75"><span>Calculate</span><span>Configure</span><span>Troubleshoot</span><span>Simplify</span></div>
+        </div>
+        <div className="absolute right-3 top-0 h-full w-[44%] opacity-80">
+          <svg viewBox="0 0 260 150" className="h-full w-full" aria-hidden="true">
+            <g fill="none" stroke="#4d9cff" strokeOpacity=".35" strokeWidth="1"><path d="M25 102 75 72 123 114 178 87 228 111M75 72 91 27 154 39 178 87M154 39 211 49 228 111" /><circle cx="151" cy="72" r="25" /><ellipse cx="151" cy="72" rx="10" ry="25" /><path d="M126 72h50M132 59h38M132 85h38" /></g>
+            <g fill="#10294e" stroke="#4d9cff" strokeOpacity=".65"><rect x="15" y="91" width="29" height="22" rx="4" /><rect x="78" y="15" width="29" height="22" rx="4" /><rect x="169" y="77" width="31" height="24" rx="4" /><rect x="211" y="104" width="28" height="18" rx="4" /></g>
+            <g fill="#64adff"><circle cx="75" cy="72" r="2.5" /><circle cx="91" cy="27" r="2.5" /><circle cx="211" cy="49" r="2.5" /><circle cx="228" cy="111" r="2.5" /></g>
+          </svg>
+        </div>
       </section>
       <section>
-        <div className="mb-3"><h2 className="text-base font-semibold">Network Tools</h2><p className="mt-1 text-[11px] text-muted-foreground">Essential tools for everyday network engineering tasks.</p></div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <div className="mb-2 flex items-center gap-2"><Grid2X2 size={17} className="text-slate-200" /><h2 className="text-[15px] font-semibold">Network Tools</h2></div>
+        <p className="mb-2 pl-[25px] text-[9px] text-muted-foreground">Essential tools for everyday network engineering tasks.</p>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           {toolCards.map((tool) => <Link key={tool.key} href={tool.href} data-testid={`card-tool-${tool.key}`} className="group relative flex min-h-[124px] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-3 transition hover:-translate-y-0.5 hover:border-blue-400/45 hover:bg-card/80">
             <div className="flex items-start justify-between"><div className={`flex h-9 w-9 items-center justify-center rounded-md border ${accentStyles[tool.accent]}`}><tool.icon size={18} /></div><span className="font-mono text-[9px] text-muted-foreground/60">{tool.key}</span></div>
             <div><div className="flex items-center justify-between gap-1"><h3 className="truncate text-[10px] font-semibold group-hover:text-blue-300">{tool.title}</h3><ArrowRight size={12} className="shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-blue-300" /></div><p className="mt-1 line-clamp-2 text-[8px] leading-[1.35] text-muted-foreground">{tool.description}</p></div>
           </Link>)}
         </div>
       </section>
+      <section className="mt-3 rounded-md border border-border bg-card p-3">
+        <div className="mb-2 flex items-center gap-2"><Zap size={16} className="text-blue-300" /><div><h2 className="text-[13px] font-semibold">Quick Access</h2><p className="text-[8px] text-muted-foreground">Jump straight into the tools you use most.</p></div></div>
+        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">{quickAccess.map(({ href, label, icon: Icon }) => <Link key={label} href={href} className="flex items-center justify-between rounded border border-border bg-secondary px-2 py-1.5 text-[8px] text-secondary-foreground transition hover:border-blue-400/40 hover:text-primary"><span className="flex items-center gap-1.5"><Icon size={12} className="text-blue-300" />{label}</span><ChevronRight size={11} className="text-muted-foreground" /></Link>)}</div>
+      </section>
     </div>
     <aside className="space-y-3">
       <section className="rounded-md border border-border bg-card p-3">
-        <h2 className="mb-3 text-[12px] font-semibold">Quick Tools</h2>
-        <div className="space-y-2">{quickTools.map(({ href, label, detail, icon: Icon, color }) => <Link key={label} href={href} className="flex items-center gap-2 rounded-md p-1.5 transition hover:bg-secondary/50"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${color}`}><Icon size={16} /></span><span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-medium">{label}</span><span className="block truncate text-[9px] text-muted-foreground">{detail}</span></span><ArrowRight size={12} className="text-muted-foreground" /></Link>)}</div>
+        <div className="mb-3 flex items-center gap-2"><Zap size={15} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Quick Info</h2></div>
+        <div className="space-y-3 text-[8px]">
+          <div className="flex gap-2"><MapPin size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Private IP ranges · RFC 1918</div><p className="mt-1 leading-4 text-muted-foreground">10.0.0.0/8<br />172.16.0.0/12<br />192.168.0.0/16</p></div></div>
+          <div className="flex gap-2"><CircleDot size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Common subnet masks</div><p className="mt-1 leading-4 text-muted-foreground">/8 · 255.0.0.0<br />/16 · 255.255.0.0<br />/24 · 255.255.255.0</p></div></div>
+          <div className="flex gap-2"><Server size={13} className="shrink-0 text-slate-200" /><div><div className="font-semibold text-slate-200">Well-known ports</div><p className="mt-1 leading-4 text-muted-foreground">SSH 22 · DNS 53<br />HTTP 80 · HTTPS 443</p></div></div>
+        </div>
+        <Link href="/port-reference" className="mt-3 flex items-center gap-1 text-[8px] text-blue-300 hover:text-blue-200">View More <ArrowRight size={11} /></Link>
       </section>
       <section className="rounded-md border border-border bg-card p-3">
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-[12px] font-semibold">Recent Notes</h2><Link href="/notes" className="text-[9px] text-primary">View all</Link></div>
-        <div className="space-y-2">{notes.slice(0, 4).map((note) => <Link key={note.id} href="/notes" className="flex items-center gap-2 border-b border-border/60 pb-2 last:border-0"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary text-primary"><FileText size={14} /></span><span className="min-w-0"><span className="block truncate text-[9px] font-medium">{note.title}</span><span className="block text-[8px] text-muted-foreground">{note.updated}</span></span></Link>)}</div>
+        <div className="mb-3 flex items-center gap-2"><Clock3 size={14} className="text-slate-100" /><h2 className="text-[12px] font-semibold">Recent Activity</h2></div>
+        {activity.length === 0 ? <div className="rounded border border-dashed border-border px-2 py-3 text-[9px] leading-4 text-muted-foreground">No tool activity yet. Open a tool and it will appear here.</div> : <div className="space-y-3">{activity.slice(0, 4).map((entry) => { const meta = activityMeta[entry.href]; if (!meta) return null; const Icon = meta.icon; return <Link key={entry.href} href={entry.href} className="flex items-center gap-2"><span className={`flex h-7 w-7 items-center justify-center rounded ${meta.color}`}><Icon size={14} /></span><span className="min-w-0"><span className="block truncate text-[9px] font-medium text-slate-200">{meta.title}</span><span className="mt-0.5 block text-[8px] text-muted-foreground">{entry.count} {entry.count === 1 ? 'visit' : 'visits'} · {formatActivityTime(entry.updatedAt)}</span></span></Link>; })}</div>}
       </section>
     </aside>
   </div>;
@@ -778,8 +770,8 @@ function CidrPage() {
             {[
               ['Network Address', `${result.network}/${result.prefix}`],
               ['Broadcast Address', result.broadcast],
-              ['First Usable Host', result.prefix === 31 ? `${result.first} Â· endpoint` : result.first],
-              ['Last Usable Host', result.prefix === 31 ? `${result.last} Â· endpoint` : result.last],
+              ['First Usable Host', result.prefix === 31 ? `${result.first} · endpoint` : result.first],
+              ['Last Usable Host', result.prefix === 31 ? `${result.last} · endpoint` : result.last],
               ['Subnet Mask', result.mask],
               ['Wildcard Mask', result.wildcard],
               ['Total Addresses', result.total.toLocaleString()],
@@ -864,14 +856,14 @@ function SubnetPage() {
           ].map(([label, value]) => <div key={label} className="rounded border border-border bg-background/35 p-2.5"><div className="text-[9px] text-muted-foreground">{label}</div><div className="mt-1 break-all font-mono text-[11px] text-foreground">{value}</div></div>)}
         </div>
         <div className="mt-4 rounded border border-border bg-background/35 p-3">
-          <div className="mb-2 flex items-center justify-between text-[9px] text-muted-foreground"><span>Address space Â· {className}</span><span>{plan.base.network} â†’ {plan.base.broadcast}</span></div>
+          <div className="mb-2 flex items-center justify-between text-[9px] text-muted-foreground"><span>Address space · {className}</span><span>{plan.base.network} → {plan.base.broadcast}</span></div>
           <div className="flex h-7 overflow-hidden rounded border border-border bg-secondary" aria-label={`Address space split into ${plan.generated} subnets`}>{plan.rows.slice(0, 64).map((row) => <span key={row.number} title={`Subnet ${row.number}: ${row.network}/${row.prefix}`} className={`h-full border-r border-background/70 ${row.number % 2 === 0 ? 'bg-primary/70' : 'bg-primary/35'}`} style={{ width: `${100 / Math.min(plan.generated, 64)}%` }} />)}</div>
           {plan.generated > 64 && <p className="mt-2 text-[9px] text-muted-foreground">Showing the first 64 segments visually; the table contains all {plan.generated.toLocaleString()} generated subnets.</p>}
         </div>
       </section>
       <section className="overflow-hidden rounded-md border border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-3 md:px-4"><SectionTitle detail="sortable results">Generated Subnets</SectionTitle><div className="flex gap-1"><CopyButton value={tableText} label="Copy table" /><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => downloadText('netkit-subnets.tsv', tableText, 'text/tab-separated-values')}><Download size={13} />Export</Button></div></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr>{[['number', '#'], ['network', 'Network / CIDR'], ['first', 'First usable'], ['last', 'Last usable'], ['broadcast', 'Broadcast'], ['mask', 'Subnet mask'], ['hosts', 'Usable hosts']].map(([key, label]) => <th key={key} className="px-3 py-2 font-medium"><button type="button" onClick={() => { const nextKey = key as keyof SubnetRow; if (sortKey === nextKey) setAscending((current) => !current); else { setSortKey(nextKey); setAscending(true); } }} className="inline-flex items-center gap-1 hover:text-primary">{label}{sortKey === key && <span>{ascending ? 'â†‘' : 'â†“'}</span>}</button></th>)}</tr></thead><tbody>{sortedRows.map((row) => <tr key={row.number} className="border-b border-border/70 last:border-0 hover:bg-secondary/35"><td className="px-3 py-2 font-mono text-muted-foreground">{row.number}</td><td className="px-3 py-2 font-mono text-primary">{row.network}/{row.prefix}</td><td className="px-3 py-2 font-mono">{row.first}</td><td className="px-3 py-2 font-mono">{row.last}</td><td className="px-3 py-2 font-mono">{row.broadcast}</td><td className="px-3 py-2 font-mono">{row.mask}</td><td className="px-3 py-2 font-mono text-accent">{row.hosts.toLocaleString()}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr>{[['number', '#'], ['network', 'Network / CIDR'], ['first', 'First usable'], ['last', 'Last usable'], ['broadcast', 'Broadcast'], ['mask', 'Subnet mask'], ['hosts', 'Usable hosts']].map(([key, label]) => <th key={key} className="px-3 py-2 font-medium"><button type="button" onClick={() => { const nextKey = key as keyof SubnetRow; if (sortKey === nextKey) setAscending((current) => !current); else { setSortKey(nextKey); setAscending(true); } }} className="inline-flex items-center gap-1 hover:text-primary">{label}{sortKey === key && <span>{ascending ? '↑' : '↓'}</span>}</button></th>)}</tr></thead><tbody>{sortedRows.map((row) => <tr key={row.number} className="border-b border-border/70 last:border-0 hover:bg-secondary/35"><td className="px-3 py-2 font-mono text-muted-foreground">{row.number}</td><td className="px-3 py-2 font-mono text-primary">{row.network}/{row.prefix}</td><td className="px-3 py-2 font-mono">{row.first}</td><td className="px-3 py-2 font-mono">{row.last}</td><td className="px-3 py-2 font-mono">{row.broadcast}</td><td className="px-3 py-2 font-mono">{row.mask}</td><td className="px-3 py-2 font-mono text-accent">{row.hosts.toLocaleString()}</td></tr>)}</tbody></table></div>
       </section>
     </div> : <EmptyState icon={Calculator} title="Enter a valid subnet plan" text="Choose a target prefix, subnet count, or host requirement to generate deterministic subnet rows." />}</>;
 }
@@ -1051,11 +1043,11 @@ function VlanPage() {
         {calculation.error && <div className="mt-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-[10px] leading-4 text-destructive" role="alert">{calculation.error}</div>}
         {formError && <div className="mt-3 rounded border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-[10px] leading-4 text-amber-200" role="alert">{formError}</div>}
         <div className="mt-4 flex gap-2"><Button onClick={save} className="flex-1" data-testid="button-add-vlan"><Plus size={14} /> {editingId === null ? 'Add to plan' : 'Save changes'}</Button>{editingId !== null && <Button variant="secondary" onClick={clearForm}>Cancel</Button>}</div>
-        <div className="mt-4 border-t border-border pt-3 text-[10px] leading-4 text-muted-foreground"><span className="font-mono text-primary">802.1Q ID RANGE</span><br />1â€“1005 normal VLAN IDs Â· 1006â€“4094 extended VLAN IDs Â· 0 and 4095 reserved.</div>
+        <div className="mt-4 border-t border-border pt-3 text-[10px] leading-4 text-muted-foreground"><span className="font-mono text-primary">802.1Q ID RANGE</span><br />1–1005 normal VLAN IDs · 1006–4094 extended VLAN IDs · 0 and 4095 reserved.</div>
       </section>
       <section className="space-y-3">
-        {subnet ? <div className="rounded-md border border-primary/25 bg-primary/5 p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={vlanRangeClass(Number(vlanId))}>{name || 'Calculated segment'}</SectionTitle><span className="font-mono text-xs text-primary">VLAN {vlanId || 'â€”'}</span></div><div className="grid grid-cols-2 gap-2 md:grid-cols-4">{[['Network', `${subnet.network}/${subnet.prefix}`], ['Subnet mask', subnet.mask], ['Wildcard', subnet.wildcard], ['Address range', `${subnet.first} â€“ ${subnet.last}`], ['Broadcast', subnet.broadcast], ['Total addresses', subnet.total.toLocaleString()], ['Usable hosts', subnet.hosts.toLocaleString()], ['Gateway', gateway || subnet.first]].map(([label, value]) => <div key={label} className="rounded border border-border bg-card/70 p-2.5"><div className="text-[9px] text-muted-foreground">{label}</div><div className="mt-1 break-words font-mono text-[10px] text-foreground">{value}</div></div>)}</div><div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{mode === 'hosts' ? `${subnet.hosts - Number(target)} usable addresses remain after the requested host target.` : 'Calculated directly from the target prefix.'}</div></div> : <EmptyState icon={Network} title="Waiting for a valid VLAN subnet" text="Enter a parent network and a subnet target to preview the segment details." />}
-        <div className="rounded-md border border-border bg-card p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${rows.length} saved locally`}>VLAN plan</SectionTitle>{conflictCount > 0 && <span className="rounded border border-amber-300/30 bg-amber-500/10 px-2 py-1 font-mono text-[9px] text-amber-200">{conflictCount} conflict{conflictCount === 1 ? '' : 's'}</span>}</div>{conflictCount > 0 && <div className="mb-3 rounded border border-amber-300/25 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-100">Review highlighted rows for duplicate VLAN IDs or overlapping subnet assignments before exporting.</div>}{rows.length === 0 ? <EmptyState icon={Network} title="No VLANs in this plan" text="Add a VLAN definition to start a browser-local network plan." /> : <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">ID</th><th className="px-3 py-2 font-medium">Name / purpose</th><th className="px-3 py-2 font-medium">Network</th><th className="px-3 py-2 font-medium">Gateway</th><th className="px-3 py-2 font-medium">Hosts</th><th className="px-3 py-2 font-medium">Actions</th></tr></thead><tbody>{rows.map((row) => { const conflict = duplicateIds.has(row.id) || overlapIds.has(row.id); return <tr key={`${row.id}-${row.network}`} data-testid={`row-vlan-${row.id}`} className={`border-b border-border/70 last:border-0 ${conflict ? 'bg-amber-500/5' : 'hover:bg-secondary/35'}`}><td className="px-3 py-2.5 align-top"><div className={`font-mono text-sm ${conflict ? 'text-amber-200' : 'text-primary'}`}>{row.id}</div><div className="mt-1 font-mono text-[8px] text-muted-foreground">{row.extended ? 'EXTENDED' : 'NORMAL'}</div></td><td className="px-3 py-2.5 align-top"><div className="font-semibold text-foreground">{row.name}</div><div className="mt-1 text-[9px] text-muted-foreground">{row.purpose} Â· {row.description || 'No description'}</div>{duplicateIds.has(row.id) && <div className="mt-1 text-[9px] text-amber-200">Duplicate VLAN ID</div>}{overlapIds.has(row.id) && <div className="mt-1 text-[9px] text-amber-200">Overlapping subnet</div>}</td><td className="px-3 py-2.5 font-mono text-primary">{row.network}<div className="mt-1 text-[9px] text-muted-foreground">{row.subnet.mask}</div></td><td className="px-3 py-2.5 font-mono">{row.gateway}</td><td className="px-3 py-2.5 font-mono text-accent">{row.subnet.hosts.toLocaleString()}<div className="mt-1 text-[9px] text-muted-foreground">target {row.hostRequirement.toLocaleString()}</div></td><td className="px-3 py-2.5"><div className="flex gap-1"><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => edit(row)} aria-label={`Edit VLAN ${row.id}`}><Pencil size={12} /></Button><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => duplicate(row)} aria-label={`Duplicate VLAN ${row.id}`}><Copy size={12} /></Button><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => remove(row.id)} aria-label={`Delete VLAN ${row.id}`}><Trash2 size={12} className="text-destructive" /></Button></div></td></tr>; })}</tbody></table></div>}</div>
+        {subnet ? <div className="rounded-md border border-primary/25 bg-primary/5 p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={vlanRangeClass(Number(vlanId))}>{name || 'Calculated segment'}</SectionTitle><span className="font-mono text-xs text-primary">VLAN {vlanId || '—'}</span></div><div className="grid grid-cols-2 gap-2 md:grid-cols-4">{[['Network', `${subnet.network}/${subnet.prefix}`], ['Subnet mask', subnet.mask], ['Wildcard', subnet.wildcard], ['Address range', `${subnet.first} – ${subnet.last}`], ['Broadcast', subnet.broadcast], ['Total addresses', subnet.total.toLocaleString()], ['Usable hosts', subnet.hosts.toLocaleString()], ['Gateway', gateway || subnet.first]].map(([label, value]) => <div key={label} className="rounded border border-border bg-card/70 p-2.5"><div className="text-[9px] text-muted-foreground">{label}</div><div className="mt-1 break-words font-mono text-[10px] text-foreground">{value}</div></div>)}</div><div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{mode === 'hosts' ? `${subnet.hosts - Number(target)} usable addresses remain after the requested host target.` : 'Calculated directly from the target prefix.'}</div></div> : <EmptyState icon={Network} title="Waiting for a valid VLAN subnet" text="Enter a parent network and a subnet target to preview the segment details." />}
+        <div className="rounded-md border border-border bg-card p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${rows.length} saved locally`}>VLAN plan</SectionTitle>{conflictCount > 0 && <span className="rounded border border-amber-300/30 bg-amber-500/10 px-2 py-1 font-mono text-[9px] text-amber-200">{conflictCount} conflict{conflictCount === 1 ? '' : 's'}</span>}</div>{conflictCount > 0 && <div className="mb-3 rounded border border-amber-300/25 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-100">Review highlighted rows for duplicate VLAN IDs or overlapping subnet assignments before exporting.</div>}{rows.length === 0 ? <EmptyState icon={Network} title="No VLANs in this plan" text="Add a VLAN definition to start a browser-local network plan." /> : <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">ID</th><th className="px-3 py-2 font-medium">Name / purpose</th><th className="px-3 py-2 font-medium">Network</th><th className="px-3 py-2 font-medium">Gateway</th><th className="px-3 py-2 font-medium">Hosts</th><th className="px-3 py-2 font-medium">Actions</th></tr></thead><tbody>{rows.map((row) => { const conflict = duplicateIds.has(row.id) || overlapIds.has(row.id); return <tr key={`${row.id}-${row.network}`} data-testid={`row-vlan-${row.id}`} className={`border-b border-border/70 last:border-0 ${conflict ? 'bg-amber-500/5' : 'hover:bg-secondary/35'}`}><td className="px-3 py-2.5 align-top"><div className={`font-mono text-sm ${conflict ? 'text-amber-200' : 'text-primary'}`}>{row.id}</div><div className="mt-1 font-mono text-[8px] text-muted-foreground">{row.extended ? 'EXTENDED' : 'NORMAL'}</div></td><td className="px-3 py-2.5 align-top"><div className="font-semibold text-foreground">{row.name}</div><div className="mt-1 text-[9px] text-muted-foreground">{row.purpose} · {row.description || 'No description'}</div>{duplicateIds.has(row.id) && <div className="mt-1 text-[9px] text-amber-200">Duplicate VLAN ID</div>}{overlapIds.has(row.id) && <div className="mt-1 text-[9px] text-amber-200">Overlapping subnet</div>}</td><td className="px-3 py-2.5 font-mono text-primary">{row.network}<div className="mt-1 text-[9px] text-muted-foreground">{row.subnet.mask}</div></td><td className="px-3 py-2.5 font-mono">{row.gateway}</td><td className="px-3 py-2.5 font-mono text-accent">{row.subnet.hosts.toLocaleString()}<div className="mt-1 text-[9px] text-muted-foreground">target {row.hostRequirement.toLocaleString()}</div></td><td className="px-3 py-2.5"><div className="flex gap-1"><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => edit(row)} aria-label={`Edit VLAN ${row.id}`}><Pencil size={12} /></Button><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => duplicate(row)} aria-label={`Duplicate VLAN ${row.id}`}><Copy size={12} /></Button><Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => remove(row.id)} aria-label={`Delete VLAN ${row.id}`}><Trash2 size={12} className="text-destructive" /></Button></div></td></tr>; })}</tbody></table></div>}</div>
       </section>
     </div>
   </>;
@@ -1089,7 +1081,7 @@ function RangePage() {
   const maxAddress = analysis.ranges.length ? Math.max(...analysis.ranges.map((range) => range.end)) : 1;
   const addressSpan = Math.max(1, maxAddress - minAddress + 1);
   const comparisonText = analysis.comparisons.map((item) => {
-    const overlap = item.overlapStart !== null && item.overlapEnd !== null ? `\t${formatIp(item.overlapStart)}-${formatIp(item.overlapEnd)}\t${(item.overlapEnd - item.overlapStart + 1).toLocaleString()}` : '\tâ€”\t0';
+    const overlap = item.overlapStart !== null && item.overlapEnd !== null ? `\t${formatIp(item.overlapStart)}-${formatIp(item.overlapEnd)}\t${(item.overlapEnd - item.overlapStart + 1).toLocaleString()}` : '\t—\t0';
     return `${item.a.source}\t${item.b.source}\t${item.status}${overlap}`;
   });
   const exportText = ['Range A\tRange B\tRelationship\tOverlap range\tOverlap addresses', ...comparisonText].join('\n');
@@ -1102,8 +1094,8 @@ function RangePage() {
     </section>
     <div className={`mb-3 rounded-md border p-4 ${statusClass}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[0.16em] opacity-75">Comparison result</div><div className="mt-1 text-xl font-semibold">{primaryStatus}</div><p className="mt-1 text-xs opacity-80">{primaryExplanation}</p></div><div className="flex gap-1"><CopyButton value={exportText} label="Copy report" /><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => downloadText('netkit-range-report.tsv', exportText, 'text/tab-separated-values')}><Download size={13} />Export</Button></div></div></div>
     {analysis.ranges.length > 0 && <section className="mb-3 rounded-md border border-border bg-card p-3 md:p-4">
-      <div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${analysis.ranges.length} normalized`}>Address Space</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">{formatIp(minAddress)} â†’ {formatIp(maxAddress)}</span></div>
-      <div className="space-y-2">{analysis.ranges.map((range, index) => { const left = ((range.start - minAddress) / addressSpan) * 100; const width = Math.max(1.2, ((range.end - range.start + 1) / addressSpan) * 100); return <div key={`${range.source}-${index}`}><div className="mb-1 flex items-center justify-between gap-2 text-[9px]"><span className="truncate font-mono text-muted-foreground">{range.source}</span><span className="font-mono text-primary">{range.startIp} â†’ {range.endIp}</span></div><div className="relative h-5 rounded border border-border bg-secondary"><span className={`absolute top-0.5 h-[17px] rounded ${index % 2 === 0 ? 'bg-primary/75' : 'bg-accent/70'}`} style={{ left: `${left}%`, width: `${Math.min(100 - left, width)}%` }} /></div></div>; })}</div>
+      <div className="mb-3 flex items-center justify-between"><SectionTitle detail={`${analysis.ranges.length} normalized`}>Address Space</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">{formatIp(minAddress)} → {formatIp(maxAddress)}</span></div>
+      <div className="space-y-2">{analysis.ranges.map((range, index) => { const left = ((range.start - minAddress) / addressSpan) * 100; const width = Math.max(1.2, ((range.end - range.start + 1) / addressSpan) * 100); return <div key={`${range.source}-${index}`}><div className="mb-1 flex items-center justify-between gap-2 text-[9px]"><span className="truncate font-mono text-muted-foreground">{range.source}</span><span className="font-mono text-primary">{range.startIp} → {range.endIp}</span></div><div className="relative h-5 rounded border border-border bg-secondary"><span className={`absolute top-0.5 h-[17px] rounded ${index % 2 === 0 ? 'bg-primary/75' : 'bg-accent/70'}`} style={{ left: `${left}%`, width: `${Math.min(100 - left, width)}%` }} /></div></div>; })}</div>
     </section>}
     <section className="overflow-hidden rounded-md border border-border bg-card">
       <div className="border-b border-border px-3 py-3 md:px-4"><SectionTitle detail="normalized inputs">Ranges</SectionTitle></div>
@@ -1111,7 +1103,7 @@ function RangePage() {
     </section>
     <section className="mt-3 overflow-hidden rounded-md border border-border bg-card">
       <div className="border-b border-border px-3 py-3 md:px-4"><SectionTitle detail={`${analysis.comparisons.length} pair${analysis.comparisons.length === 1 ? '' : 's'}`}>Relationships</SectionTitle></div>
-      {analysis.comparisons.length === 0 ? <div className="p-6 text-center text-xs text-muted-foreground">Add at least two valid inputs to compare ranges.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">Range A</th><th className="px-3 py-2 font-medium">Range B</th><th className="px-3 py-2 font-medium">Relationship</th><th className="px-3 py-2 font-medium">Exact overlap</th><th className="px-3 py-2 font-medium">Addresses</th></tr></thead><tbody>{analysis.comparisons.map((item) => <tr key={`${item.a.source}-${item.b.source}`} className="border-b border-border/70 last:border-0"><td className="max-w-[190px] truncate px-3 py-2 font-mono">{item.a.source}</td><td className="max-w-[190px] truncate px-3 py-2 font-mono">{item.b.source}</td><td className={`px-3 py-2 font-semibold ${item.status === 'No Overlap' ? 'text-accent' : item.status === 'Touching Ranges' ? 'text-muted-foreground' : 'text-primary'}`}>{item.status}<div className="mt-0.5 font-normal text-muted-foreground">{item.explanation}</div></td><td className="px-3 py-2 font-mono">{item.overlapStart !== null && item.overlapEnd !== null ? `${formatIp(item.overlapStart)}-${formatIp(item.overlapEnd)}` : 'â€”'}</td><td className="px-3 py-2 font-mono text-accent">{item.overlapStart !== null && item.overlapEnd !== null ? (item.overlapEnd - item.overlapStart + 1).toLocaleString() : '0'}</td></tr>)}</tbody></table></div>}
+      {analysis.comparisons.length === 0 ? <div className="p-6 text-center text-xs text-muted-foreground">Add at least two valid inputs to compare ranges.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-[10px]"><thead className="border-b border-border bg-secondary/40 font-mono uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">Range A</th><th className="px-3 py-2 font-medium">Range B</th><th className="px-3 py-2 font-medium">Relationship</th><th className="px-3 py-2 font-medium">Exact overlap</th><th className="px-3 py-2 font-medium">Addresses</th></tr></thead><tbody>{analysis.comparisons.map((item) => <tr key={`${item.a.source}-${item.b.source}`} className="border-b border-border/70 last:border-0"><td className="max-w-[190px] truncate px-3 py-2 font-mono">{item.a.source}</td><td className="max-w-[190px] truncate px-3 py-2 font-mono">{item.b.source}</td><td className={`px-3 py-2 font-semibold ${item.status === 'No Overlap' ? 'text-accent' : item.status === 'Touching Ranges' ? 'text-muted-foreground' : 'text-primary'}`}>{item.status}<div className="mt-0.5 font-normal text-muted-foreground">{item.explanation}</div></td><td className="px-3 py-2 font-mono">{item.overlapStart !== null && item.overlapEnd !== null ? `${formatIp(item.overlapStart)}-${formatIp(item.overlapEnd)}` : '—'}</td><td className="px-3 py-2 font-mono text-accent">{item.overlapStart !== null && item.overlapEnd !== null ? (item.overlapEnd - item.overlapStart + 1).toLocaleString() : '0'}</td></tr>)}</tbody></table></div>}
     </section>
   </>;
 }
@@ -1166,7 +1158,7 @@ function PortPage() {
     });
   }, [category, lookup, protocol, query, sortKey, ascending]);
   const selected = ports.find((item) => item.port === selectedPort) ?? shown[0] ?? ports[0];
-  const rangeLabel = selected.port <= 1023 ? 'Well-known Â· 0â€“1023' : selected.port <= 49151 ? 'Registered Â· 1024â€“49151' : 'Dynamic / private Â· 49152â€“65535';
+  const rangeLabel = selected.port <= 1023 ? 'Well-known · 0–1023' : selected.port <= 49151 ? 'Registered · 1024–49151' : 'Dynamic / private · 49152–65535';
   const toggleSort = (key: 'port' | 'service' | 'category') => {
     if (sortKey === key) setAscending((value) => !value);
     else { setSortKey(key); setAscending(true); }
@@ -1185,531 +1177,271 @@ function PortPage() {
     </section>
     <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
       <section className="overflow-hidden rounded-md border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-3 py-3 md:px-4"><SectionTitle detail="click a row for details">Common services</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">SORT: {sortKey} {ascending ? 'â†‘' : 'â†“'}</span></div>
-        {shown.length === 0 ? <div className="p-8"><EmptyState icon={Search} title="No matching ports" text="Try a port number, service name, category, or protocol." /></div> : <div className="overflow-x-auto"><div className="min-w-[850px]"><div className="grid grid-cols-[70px_90px_1.1fr_1.15fr_1.3fr_44px] border-b border-border bg-secondary/40 px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"><button type="button" onClick={() => toggleSort('port')} className="text-left hover:text-primary">Port {sortKey === 'port' && (ascending ? 'â†‘' : 'â†“')}</button><span>Protocol</span><button type="button" onClick={() => toggleSort('service')} className="text-left hover:text-primary">Service {sortKey === 'service' && (ascending ? 'â†‘' : 'â†“')}</button><span>Transport</span><span>Common usage</span><span /></div>{shown.map((item) => <div key={item.port} role="button" tabIndex={0} onClick={() => setSelectedPort(item.port)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedPort(item.port); }} data-testid={`row-port-${item.service.replace(/\s+/g, '-').toLowerCase()}`} className={`grid grid-cols-[70px_90px_1.1fr_1.15fr_1.3fr_44px] items-center border-b border-border/70 px-3 py-2.5 transition last:border-0 hover:bg-secondary/35 focus:bg-primary/5 focus:outline-none ${selected.port === item.port ? 'bg-primary/5' : ''}`}><span className="font-mono text-sm text-primary">{item.port}</span><span><span className="rounded border border-border bg-secondary px-1.5 py-1 font-mono text-[9px] text-muted-foreground">{item.protocol}</span></span><span className="text-[11px] font-semibold">{item.service}</span><span className="text-[10px] text-muted-foreground">{item.transport}</span><span className="truncate text-[10px] text-muted-foreground">{item.usage}</span><CopyButton value={`${item.port}\t${item.protocol}\t${item.service}`} label="" /></div>)}</div></div>}
+        <div className="flex items-center justify-between border-b border-border px-3 py-3 md:px-4"><SectionTitle detail="click a row for details">Common services</SectionTitle><span className="font-mono text-[9px] text-muted-foreground">SORT: {sortKey} {ascending ? '↑' : '↓'}</span></div>
+        {shown.length === 0 ? <div className="p-8"><EmptyState icon={Search} title="No matching ports" text="Try a port number, service name, category, or protocol." /></div> : <div className="overflow-x-auto"><div className="min-w-[850px]"><div className="grid grid-cols-[70px_90px_1.1fr_1.15fr_1.3fr_44px] border-b border-border bg-secondary/40 px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"><button type="button" onClick={() => toggleSort('port')} className="text-left hover:text-primary">Port {sortKey === 'port' && (ascending ? '↑' : '↓')}</button><span>Protocol</span><button type="button" onClick={() => toggleSort('service')} className="text-left hover:text-primary">Service {sortKey === 'service' && (ascending ? '↑' : '↓')}</button><span>Transport</span><span>Common usage</span><span /></div>{shown.map((item) => <div key={item.port} role="button" tabIndex={0} onClick={() => setSelectedPort(item.port)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedPort(item.port); }} data-testid={`row-port-${item.service.replace(/\s+/g, '-').toLowerCase()}`} className={`grid grid-cols-[70px_90px_1.1fr_1.15fr_1.3fr_44px] items-center border-b border-border/70 px-3 py-2.5 transition last:border-0 hover:bg-secondary/35 focus:bg-primary/5 focus:outline-none ${selected.port === item.port ? 'bg-primary/5' : ''}`}><span className="font-mono text-sm text-primary">{item.port}</span><span><span className="rounded border border-border bg-secondary px-1.5 py-1 font-mono text-[9px] text-muted-foreground">{item.protocol}</span></span><span className="text-[11px] font-semibold">{item.service}</span><span className="text-[10px] text-muted-foreground">{item.transport}</span><span className="truncate text-[10px] text-muted-foreground">{item.usage}</span><CopyButton value={`${item.port}\t${item.protocol}\t${item.service}`} label="" /></div>)}</div></div>}
       </section>
       <aside className="space-y-3">
-        <section className="rounded-md border border-primary/25 bg-primary/5 p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={rangeLabel}>{selected.service}</SectionTitle><span className="font-mono text-lg text-primary">{selected.port}</span></div><div className="space-y-3 text-[10px]"><div><div className="text-muted-foreground">Protocol / transport</div><div className="mt-1 font-mono text-foreground">{selected.protocol} Â· {selected.transport}</div></div><div><div className="text-muted-foreground">Description</div><div className="mt-1 leading-4 text-foreground">{selected.description}</div></div><div><div className="text-muted-foreground">Common usage</div><div className="mt-1 leading-4 text-foreground">{selected.usage}</div></div><div><div className="text-muted-foreground">Notes</div><div className="mt-1 leading-4 text-muted-foreground">{selected.notes}</div></div></div><CopyButton value={`${selected.port} ${selected.protocol} ${selected.service} â€” ${selected.description}`} label="Copy reference" /></section>
-        <section className="rounded-md border border-border bg-card p-4"><SectionTitle detail="IANA-style ranges">Port range</SectionTitle><div className="space-y-2 text-[10px]"><div className="flex items-center justify-between border-b border-border pb-2"><span className="text-muted-foreground">Well-known</span><span className="font-mono text-foreground">0â€“1023</span></div><div className="flex items-center justify-between border-b border-border pb-2"><span className="text-muted-foreground">Registered</span><span className="font-mono text-foreground">1024â€“49151</span></div><div className="flex items-center justify-between"><span className="text-muted-foreground">Dynamic / private</span><span className="font-mono text-foreground">49152â€“65535</span></div></div><p className="mt-3 text-[9px] leading-4 text-muted-foreground">A port number is only a convention. Confirm the listening process, transport, and device policy before making a change.</p></section>
+        <section className="rounded-md border border-primary/25 bg-primary/5 p-4"><div className="mb-3 flex items-center justify-between"><SectionTitle detail={rangeLabel}>{selected.service}</SectionTitle><span className="font-mono text-lg text-primary">{selected.port}</span></div><div className="space-y-3 text-[10px]"><div><div className="text-muted-foreground">Protocol / transport</div><div className="mt-1 font-mono text-foreground">{selected.protocol} · {selected.transport}</div></div><div><div className="text-muted-foreground">Description</div><div className="mt-1 leading-4 text-foreground">{selected.description}</div></div><div><div className="text-muted-foreground">Common usage</div><div className="mt-1 leading-4 text-foreground">{selected.usage}</div></div><div><div className="text-muted-foreground">Notes</div><div className="mt-1 leading-4 text-muted-foreground">{selected.notes}</div></div></div><CopyButton value={`${selected.port} ${selected.protocol} ${selected.service} — ${selected.description}`} label="Copy reference" /></section>
+        <section className="rounded-md border border-border bg-card p-4"><SectionTitle detail="IANA-style ranges">Port range</SectionTitle><div className="space-y-2 text-[10px]"><div className="flex items-center justify-between border-b border-border pb-2"><span className="text-muted-foreground">Well-known</span><span className="font-mono text-foreground">0–1023</span></div><div className="flex items-center justify-between border-b border-border pb-2"><span className="text-muted-foreground">Registered</span><span className="font-mono text-foreground">1024–49151</span></div><div className="flex items-center justify-between"><span className="text-muted-foreground">Dynamic / private</span><span className="font-mono text-foreground">49152–65535</span></div></div><p className="mt-3 text-[9px] leading-4 text-muted-foreground">A port number is only a convention. Confirm the listening process, transport, and device policy before making a change.</p></section>
       </aside>
     </div>
   </>;
 }
 
+function LegacyCommandBuilderPage() {
+  const [vendor, setVendor] = useState('Cisco IOS');
+  const [commandType, setCommandType] = useState('interface');
+  const [interfaceName, setInterfaceName] = useState('GigabitEthernet1/0/24');
+  const [vlan, setVlan] = useState('120');
+  const [description, setDescription] = useState('EDGE_USERS access');
+  const [ip, setIp] = useState('10.120.0.1');
+  const { copied, copy } = useCopy();
+  const command = useMemo(() => {
+    if (commandType === 'interface') {
+      if (vendor === 'Cisco IOS') return `interface ${interfaceName}\n description ${description}\n switchport mode access\n switchport access vlan ${vlan}\n spanning-tree portfast`;
+      if (vendor === 'Arista EOS') return `interface ${interfaceName}\n description ${description}\n switchport mode access\n switchport access vlan ${vlan}\n spanning-tree portfast`;
+      return `/interface ethernet ${interfaceName}\nset comment="${description}"\nset bridge-mode=access\nset bridge-access=${vlan}`;
+    }
+    if (vendor === 'Cisco IOS') return `interface Vlan${vlan}\n description ${description}\n ip address ${ip} 255.255.255.0\n no shutdown`;
+    if (vendor === 'Arista EOS') return `interface Vlan${vlan}\n description ${description}\n ip address ${ip}/24\n no shutdown`;
+    return `/interface vlan\nadd name=${description} vlan-id=${vlan}\n/ip address\nadd address=${ip}/24 interface=${description}`;
+  }, [commandType, description, interfaceName, ip, vendor, vlan]);
+  return <><PageHeader eyebrow="Reference / 06" title="Command builder" description="Generate a clean starting point for common access-port and SVI changes. Verify against your platform standards before applying." /><div className="grid gap-5 xl:grid-cols-[390px_1fr]"><section className="rounded-lg border border-border bg-card p-5"><SectionTitle detail="parameters">Change inputs</SectionTitle><div className="space-y-4"><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Platform</span><select data-testid="select-command-vendor" value={vendor} onChange={(event) => setVendor(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"><option>Cisco IOS</option><option>Arista EOS</option><option>MikroTik RouterOS</option></select></label><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Change type</span><select data-testid="select-command-type" value={commandType} onChange={(event) => setCommandType(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"><option value="interface">Access interface</option><option value="svi">SVI / gateway</option></select></label><Field label="Interface" value={interfaceName} onChange={setInterfaceName} /><Field label="VLAN ID" value={vlan} onChange={setVlan} type="number" /><Field label="Description" value={description} onChange={setDescription} />{commandType === 'svi' && <Field label="Gateway IP" value={ip} onChange={setIp} />}</div></section><section className="overflow-hidden rounded-lg border border-border bg-card"><div className="flex items-center justify-between border-b border-border bg-card/60 px-4 py-3"><div className="flex items-center gap-2"><Code2 size={15} className="text-primary" /><span className="font-mono text-xs text-muted-foreground">{vendor.toLowerCase().replace(' ', '-')}.conf</span></div><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => copy(command)}><Copy size={13} />{copied ? 'Copied' : 'Copy command'}</Button></div><pre data-testid="text-generated-command" className="min-h-[330px] overflow-x-auto p-5 font-mono text-sm leading-7 text-slate-300"><code>{command}</code></pre><div className="border-t border-border bg-card/35 px-4 py-3 text-[11px] text-muted-foreground">Generated locally · Review interface names and policy before deployment.</div></section></div></>;
+}
+
+function LegacyNotesPage() {
+  const [notes, setNotes] = useState<Note[]>(() => { try { const stored = localStorage.getItem('netkit-notes'); return stored ? JSON.parse(stored) as Note[] : initialNotes; } catch { return initialNotes; } });
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<number | null>(notes[0]?.id ?? null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ title: '', body: '', tag: '' });
+  useEffect(() => { localStorage.setItem('netkit-notes', JSON.stringify(notes)); }, [notes]);
+  const filtered = notes.filter((note) => `${note.title} ${note.body} ${note.tag}`.toLowerCase().includes(query.toLowerCase()));
+  const active = notes.find((note) => note.id === selected) ?? null;
+  const startNew = () => { setSelected(null); setDraft({ title: '', body: '', tag: 'NOTE' }); setEditing(true); };
+  const startEdit = () => { if (active) { setDraft({ title: active.title, body: active.body, tag: active.tag }); setEditing(true); } };
+  const save = () => { if (!draft.title.trim()) return; const next = normalizeNote({ id: selected ?? Date.now(), title: draft.title.trim(), body: draft.body.trim(), tag: draft.tag.trim() || 'NOTE', updated: 'Just now', category: 'General', tags: [], pinned: false, archived: false, updatedAt: Date.now(), createdAt: Date.now() }); setNotes((current) => selected ? current.map((note) => note.id === selected ? next : note) : [next, ...current]); setSelected(next.id); setEditing(false); };
+  const remove = () => { if (!active) return; setNotes((current) => current.filter((note) => note.id !== active.id)); setSelected(null); setEditing(false); };
+  return <><PageHeader eyebrow="Workspace / 07" title="Notes" description="Keep the little details that make the next network change safer. Notes are stored locally in this browser." action={<Button onClick={startNew} data-testid="button-new-note"><Plus size={15} /> New note</Button>} /><div className="grid min-h-[570px] gap-0 overflow-hidden rounded-lg border border-border bg-card lg:grid-cols-[300px_1fr]"><aside className="border-b border-border bg-secondary/20 lg:border-b-0 lg:border-r"><div className="border-b border-border p-3"><div className="relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input data-testid="input-notes-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter notes..." className="h-9 w-full rounded border border-input bg-background/60 pl-8 pr-2 text-xs outline-none focus:border-primary" /></div></div><div className="max-h-[220px] overflow-y-auto p-2 lg:max-h-[500px]">{filtered.map((note) => <button key={note.id} data-testid={`button-note-${note.id}`} onClick={() => { setSelected(note.id); setEditing(false); }} className={`w-full rounded-md p-3 text-left transition ${selected === note.id ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-secondary'}`}><div className="flex items-center justify-between gap-2"><span className={`font-mono text-[9px] tracking-wider ${selected === note.id ? 'text-primary' : 'text-muted-foreground'}`}>{note.tag}</span><span className="font-mono text-[9px] text-muted-foreground/70">{note.updated}</span></div><div className="mt-2 truncate text-sm font-semibold">{note.title}</div><div className="mt-1 truncate text-[11px] text-muted-foreground">{note.body}</div></button>)}</div>{filtered.length === 0 && <div className="p-5 text-center text-xs text-muted-foreground">No notes match that filter.</div>}</aside><section className="relative">{editing ? <div className="p-5 md:p-7"><div className="mb-5 flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-wider text-primary">{selected ? 'Edit note' : 'New note'}</div><h2 className="mt-1 text-lg font-semibold">{selected ? 'Update this note' : 'Capture a detail'}</h2></div><Button variant="ghost" onClick={() => setEditing(false)}><X size={16} /></Button></div><div className="space-y-4"><Field label="Title" value={draft.title} onChange={(value) => setDraft((current) => ({ ...current, title: value }))} placeholder="A useful heading" /><div className="grid gap-4 sm:grid-cols-[1fr_160px]"><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Details</span><textarea data-testid="input-note-body" value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="Write the address, caveat or next step..." className="min-h-[190px] w-full resize-y rounded-md border border-input bg-background/70 p-3 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" /></label><Field label="Tag" value={draft.tag} onChange={(value) => setDraft((current) => ({ ...current, tag: value }))} placeholder="CHANGE" /></div><div className="flex gap-2 pt-2"><Button onClick={save} data-testid="button-save-note"><Check size={15} /> Save note</Button><Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button></div></div></div> : active ? <div className="p-5 md:p-7"><div className="mb-7 flex items-start justify-between gap-4"><div><div className="mb-3 flex items-center gap-2"><span className="rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary">{active.tag}</span><span className="font-mono text-[10px] text-muted-foreground">{active.updated}</span></div><h2 className="text-xl font-semibold">{active.title}</h2></div><div className="flex gap-1"><Button variant="ghost" onClick={startEdit} data-testid="button-edit-note"><Pencil size={15} /></Button><Button variant="ghost" onClick={remove} data-testid="button-delete-note"><Trash2 size={15} className="text-destructive" /></Button></div></div><div className="max-w-2xl whitespace-pre-wrap text-sm leading-8 text-muted-foreground">{active.body}</div><div className="mt-10 border-t border-border pt-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Stored in this browser · no sync</div></div> : <EmptyState icon={FileText} title="Select a note or start fresh" text="Your notes are local by design. Nothing leaves this workspace." />}</section></div></>;
+}
+
 function CommandBuilderPage() {
+  const inputPanelRef = useRef<HTMLDivElement>(null);
   const [vendor, setVendor] = useState<BuilderVendor>('Cisco IOS / IOS-XE');
   const [category, setCategory] = useState<BuilderCategory>('interface');
   const [values, setValues] = useState<Record<string, string>>(() => ({ ...defaultBuilderValues }));
-  const { copied, copy } = useCopy();
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState('Ready to generate.');
   const fields = builderFields(category);
-  const categoryLabel = builderCategories.find((c) => c.value === category)?.label ?? category;
-  const validationErrors = useMemo(() => validateBuilderValues(category, values), [category, values]);
-  const hasErrors = Object.keys(validationErrors).length > 0;
-  const command = useMemo(() => {
-    if (hasErrors) return '';
-    return generateBuilderCommand(vendor, category, values);
-  }, [vendor, category, values, hasErrors]);
-  const lines = command ? command.split('\n') : [];
-  const handleFieldChange = (key: string, value: string) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
+  const command = useMemo(() => generateBuilderCommand(vendor, category, values), [category, values, vendor]);
+  const lines = command.split('\n');
+
+  const updateValue = (key: string, value: string) => {
+    setValues((current) => ({ ...current, [key]: value }));
+    setErrors((current) => ({ ...current, [key]: '' }));
+    setNotice('Inputs changed · regenerate when ready.');
   };
-  const reset = () => setValues({ ...defaultBuilderValues });
-  const exportCommand = () => {
-    if (command) downloadText('netkit-command.txt', command, 'text/plain');
+  const generate = () => {
+    const nextErrors = validateBuilderValues(category, values);
+    setErrors(nextErrors);
+    setNotice(Object.keys(nextErrors).length ? 'Resolve the highlighted fields before generating.' : 'Generated locally · review before applying.');
   };
-  const copyAll = () => {
-    if (command) copy(command);
+  const reset = () => {
+    setValues((current) => {
+      const next = { ...current };
+      fields.forEach((field) => { next[field.key] = defaultBuilderValues[field.key] ?? ''; });
+      return next;
+    });
+    setErrors({});
+    setNotice('Inputs reset to a safe example.');
   };
-  return (
-    <>
-      <PageHeader
-        eyebrow="Reference / 07"
-        title="Command Builder"
-        description="Select a vendor, command category, and parameters to generate copy-ready configuration blocks."
-        action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">TEMPLATE-BASED</span>}
-      />
-      <div className="grid gap-5 xl:grid-cols-[390px_1fr]">
-        <section className="rounded-lg border border-border bg-card p-5">
-          <SectionTitle detail="template">Configuration</SectionTitle>
-          <div className="space-y-4">
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Vendor / Platform</span>
-              <select
-                data-testid="select-command-vendor"
-                value={vendor}
-                onChange={(e) => setVendor(e.target.value as BuilderVendor)}
-                className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"
-              >
-                {builderVendors.map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Command Category</span>
-              <select
-                data-testid="select-command-category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value as BuilderCategory)}
-                className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"
-              >
-                {builderCategories.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </select>
-            </label>
-            <div className="border-t border-border pt-4">
-              <SectionTitle detail={`${fields.length} fields`}>Parameters</SectionTitle>
-              <div className="space-y-3">
-                {fields.map((field) => (
-                  <div key={field.key}>
-                    {field.options ? (
-                      <label className="block">
-                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{field.label}</span>
-                        <select
-                          data-testid={`input-builder-${field.key}`}
-                          value={values[field.key] ?? ''}
-                          onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                          className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary"
-                        >
-                          {field.options.map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : (
-                      <Field
-                        label={field.label}
-                        value={values[field.key] ?? ''}
-                        onChange={(val) => handleFieldChange(field.key, val)}
-                        placeholder={field.placeholder}
-                        type={field.type}
-                        min={field.min}
-                        max={field.max}
-                      />
-                    )}
-                    {validationErrors[field.key] && (
-                      <p className="mt-1 text-[11px] text-destructive">{validationErrors[field.key]}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="border-t border-border pt-4">
-              <Button variant="secondary" className="w-full" onClick={reset}>
-                <RotateCcw size={14} />
-                Reset to defaults
-              </Button>
-            </div>
-          </div>
-        </section>
-        <section className="flex flex-col overflow-hidden rounded-lg border border-border bg-card">
-          <div className="flex items-center justify-between border-b border-border bg-card/60 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Code2 size={15} className="text-primary" />
-              <span className="font-mono text-xs text-muted-foreground">{vendor} · {categoryLabel}</span>
-            </div>
-            <div className="flex gap-1">
-              <Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={copyAll} disabled={!command || hasErrors}>
-                <Copy size={13} />
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
-              <Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={exportCommand} disabled={!command || hasErrors}>
-                <Download size={13} />
-                Export
-              </Button>
-              <Button variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={reset}>
-                <RotateCcw size={13} />
-              </Button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-auto p-5 font-mono text-[13px] leading-6">
-            {hasErrors ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-destructive">
-                <p className="font-semibold">Validation errors</p>
-                <ul className="mt-2 space-y-1 text-[12px]">
-                  {Object.entries(validationErrors).map(([key, msg]) => (
-                    <li key={key}>{key}: {msg}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : command ? (
-              <pre data-testid="text-command-output">
-                {lines.map((line, i) => (
-                  <div key={i} className="flex hover:bg-secondary/30">
-                    <span className="mr-4 w-8 shrink-0 select-none text-right text-muted-foreground/40">{i + 1}</span>
-                    <span className="text-foreground">{line || '\u00A0'}</span>
-                  </div>
-                ))}
-              </pre>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <TerminalSquare size={32} className="mb-3 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">Configure the inputs to generate a command.</p>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 border-t border-border bg-card/60 px-4 py-2.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-            <span className="text-[11px] text-muted-foreground">Review before applying. Verify syntax and context for your platform version.</span>
-          </div>
-        </section>
-      </div>
-    </>
-  );
+  const editInputs = () => {
+    inputPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    inputPanelRef.current?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')?.focus();
+  };
+  const copyCommand = () => {
+    void navigator.clipboard?.writeText(command);
+    setCopied(true);
+    setNotice('Command copied to clipboard.');
+    window.setTimeout(() => setCopied(false), 1400);
+  };
+  const downloadCommand = () => {
+    const blob = new Blob([command + '\n'], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `netkit-${vendor.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${category}.conf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setNotice('Command file downloaded.');
+  };
+  const changeCategory = (next: BuilderCategory) => {
+    setCategory(next);
+    setErrors({});
+    setNotice('Template changed · complete the parameters below.');
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const commandKey = event.metaKey || event.ctrlKey;
+      if (!commandKey) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        generate();
+      } else if (event.shiftKey && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        copyCommand();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  return <><PageHeader eyebrow="Automation / 06" title="Command builder" description="Generate review-ready configuration for common network platforms. Every template stays local and is clearly marked for verification before use." action={<span className="hidden rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">OFFLINE GENERATOR</span>} />
+    <div className="mb-4 flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] leading-5 text-amber-200"><CircleDot size={15} className="mt-0.5 shrink-0 text-amber-300" /><div><span className="font-semibold text-amber-100">Review before applying.</span> Templates are deterministic starting points, not deployment approvals. Validate syntax, interface names, policy scope, maintenance window, and rollback steps against your device and standards.</div></div>
+    <div className="grid gap-4 xl:grid-cols-[390px_minmax(0,1fr)]">
+      <section ref={inputPanelRef} className="rounded-lg border border-border bg-card p-4 md:p-5">
+        <div className="mb-4 flex items-center justify-between"><SectionTitle detail="dynamic inputs">Template inputs</SectionTitle><button type="button" onClick={reset} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary"><RotateCcw size={12} /> Reset</button></div>
+        <div className="space-y-3">
+          <label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Platform</span><select data-testid="select-command-vendor" value={vendor} onChange={(event) => setVendor(event.target.value as BuilderVendor)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">{builderVendors.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Template category</span><select data-testid="select-command-type" value={category} onChange={(event) => changeCategory(event.target.value as BuilderCategory)} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">{builderCategories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+          {fields.map((field) => <label key={field.key} className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{field.label}{field.required && <span className="ml-1 text-primary">*</span>}</span>{field.options ? <select aria-label={field.label} value={values[field.key] ?? ''} onChange={(event) => updateValue(field.key, event.target.value)} className={`h-10 w-full rounded-md border bg-background/70 px-3 text-sm outline-none focus:border-primary ${errors[field.key] ? 'border-destructive' : 'border-input'}`}>{field.options.map((option) => <option key={option}>{option}</option>)}</select> : <input aria-label={field.label} data-testid={`input-command-${field.key}`} type={field.type ?? 'text'} min={field.min} max={field.max} value={values[field.key] ?? ''} onChange={(event) => updateValue(field.key, event.target.value)} placeholder={field.placeholder} className={`h-10 w-full rounded-md border bg-background/70 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors[field.key] ? 'border-destructive' : 'border-input'}`} />}{errors[field.key] && <span className="mt-1 block text-[10px] text-destructive">{errors[field.key]}</span>}</label>)}
+          <Button variant="primary" className="w-full" onClick={generate} data-testid="button-generate-command"><Sparkles size={15} /> Generate command</Button>
+        </div>
+        <div className="mt-4 rounded border border-border bg-background/40 p-3 text-[10px] leading-5 text-muted-foreground"><span className="font-mono text-primary">SHORTCUTS</span><br />Ctrl/Cmd + Enter generates · Ctrl/Cmd + Shift + C copies output</div>
+      </section>
+      <section className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card/60 px-4 py-3"><div className="flex items-center gap-2"><Code2 size={15} className="text-primary" /><div><div className="font-mono text-xs text-muted-foreground">{vendor.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.conf</div><div className="text-[10px] text-muted-foreground">{builderCategories.find((item) => item.value === category)?.label}</div></div></div><div className="flex gap-1"><Button variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={editInputs}><Pencil size={13} /> Edit inputs</Button><Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={downloadCommand}><Download size={13} /> Download</Button><Button variant="primary" className="px-2.5 py-1.5 text-xs" onClick={copyCommand}><Copy size={13} /> {copied ? 'Copied' : 'Copy'}</Button></div></div>
+        <div className="overflow-x-auto bg-[#0a0e14] p-4 md:p-5"><pre data-testid="text-generated-command" className="min-h-[390px] min-w-max font-mono text-xs leading-7 text-slate-300">{lines.map((line, index) => <div key={`${index}-${line}`} className="flex"><span className="mr-5 inline-block w-6 select-none text-right text-slate-600">{String(index + 1).padStart(2, '0')}</span><code>{line || ' '}</code></div>)}</pre></div>
+        <div className="flex items-center justify-between gap-3 border-t border-border bg-card/35 px-4 py-3 text-[10px] text-muted-foreground"><span>{notice}</span><span className="hidden font-mono text-primary sm:inline">LOCAL · NO DEVICE CONNECTION</span></div>
+      </section>
+    </div>
+  </>;
 }
+
 function NotesPage() {
   const [notes, setNotes] = useState<Note[]>(() => {
     try {
       const stored = localStorage.getItem('netkit-notes');
-      return stored ? JSON.parse(stored) as Note[] : [];
-    } catch { return []; }
+      const parsed = stored ? JSON.parse(stored) : initialNotes;
+      return Array.isArray(parsed) ? parsed.map((item, index) => normalizeNote(item, index)) : initialNotes;
+    } catch { return initialNotes; }
   });
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [query, setQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('All');
-  const [showArchived, setShowArchived] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('All categories');
+  const [tagFilter, setTagFilter] = useState('All tags');
+  const [viewFilter, setViewFilter] = useState<'all' | 'pinned' | 'archived' | 'recent'>('all');
+  const [selected, setSelected] = useState<number | null>(notes[0]?.id ?? null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ title: '', body: '', category: 'General', tags: '' });
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
-  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
-
+  const [saveState, setSaveState] = useState('Saved locally');
+  const [copiedBlock, setCopiedBlock] = useState<number | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   useEffect(() => { localStorage.setItem('netkit-notes', JSON.stringify(notes)); }, [notes]);
+  const active = notes.find((note) => note.id === selected) ?? null;
+  const tags = Array.from(new Set(notes.flatMap((note) => note.tags))).sort();
+  const filtered = useMemo(() => notes.filter((note) => {
+    const haystack = `${note.title} ${note.body} ${note.category} ${note.tags.join(' ')}`.toLowerCase();
+    const matchesQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
+    const matchesCategory = categoryFilter === 'All categories' || note.category === categoryFilter;
+    const matchesTag = tagFilter === 'All tags' || note.tags.includes(tagFilter);
+    const matchesView = viewFilter === 'all' || (viewFilter === 'pinned' && note.pinned) || (viewFilter === 'archived' && note.archived) || (viewFilter === 'recent' && Date.now() - note.updatedAt < 1000 * 60 * 60 * 24 * 7);
+    return matchesQuery && matchesCategory && matchesTag && matchesView;
+  }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt), [categoryFilter, notes, query, tagFilter, viewFilter]);
 
-  const active = notes.find((n) => n.id === selectedId) ?? null;
-
-  const filteredNotes = useMemo(() => {
-    return notes
-      .filter((note) => {
-        if (note.archived !== showArchived) return false;
-        if (categoryFilter !== 'All' && note.category !== categoryFilter) return false;
-        if (query) {
-          const search = `${note.title} ${note.body} ${note.category} ${note.tags.join(' ')}`.toLowerCase();
-          if (!search.includes(query.toLowerCase())) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-        return b.updatedAt - a.updatedAt;
-      });
-  }, [notes, query, categoryFilter, showArchived]);
-
-  const createNote = () => {
-    setSelectedId(null);
-    setDraft({ title: '', body: '', category: 'General', tags: '' });
-    setEditing(true);
-    setViewMode('edit');
+  const commitDraft = (nextDraft = draft, id = selected) => {
+    if (!nextDraft.title.trim()) { setSaveState('Add a title to save'); return; }
+    const timestamp = Date.now();
+    const nextNote = normalizeNote({
+      id: id ?? timestamp,
+      title: nextDraft.title.trim(),
+      body: nextDraft.body,
+      category: nextDraft.category,
+      tags: nextDraft.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      tag: nextDraft.category.toUpperCase(),
+      updated: formatNoteTime(timestamp),
+      updatedAt: timestamp,
+      createdAt: active?.createdAt ?? timestamp,
+      pinned: active?.pinned ?? false,
+      archived: active?.archived ?? false,
+    });
+    setNotes((current) => id ? current.map((note) => note.id === id ? nextNote : note) : [nextNote, ...current]);
+    setSelected(nextNote.id);
+    setSaveState('Saved locally');
   };
-
-  const selectNote = (id: number) => {
-    const note = notes.find((n) => n.id === id);
-    if (note) {
-      setSelectedId(id);
-      setDraft({ title: note.title, body: note.body, category: note.category, tags: note.tags.join(', ') });
-      setEditing(true);
-      setViewMode('edit');
-    }
-  };
-
-  const saveNote = () => {
-    if (!draft.title.trim()) return;
-    const tagList = draft.tags.split(',').map((t) => t.trim()).filter(Boolean);
-    const now = Date.now();
-    if (selectedId) {
-      setNotes((prev) => prev.map((n) =>
-        n.id === selectedId
-          ? { ...n, title: draft.title.trim(), body: draft.body, category: draft.category, tags: tagList, updatedAt: now, updated: formatNoteTime(now) }
-          : n
-      ));
-    } else {
-      const newNote: Note = {
-        id: now, title: draft.title.trim(), body: draft.body, category: draft.category,
-        tags: tagList, tag: draft.category, updated: 'Just now',
-        pinned: false, archived: false, createdAt: now, updatedAt: now,
-      };
-      setNotes((prev) => [newNote, ...prev]);
-      setSelectedId(newNote.id);
-    }
-    setSaveStatus('saved');
-  };
-
-  const deleteNote = () => {
-    if (!active) return;
-    if (!window.confirm(`Delete "${active.title}"? This cannot be undone.`)) return;
-    setNotes((prev) => prev.filter((n) => n.id !== active.id));
-    setSelectedId(null);
-    setEditing(false);
-  };
-
-  const pinNote = () => {
-    if (!active) return;
-    setNotes((prev) => prev.map((n) => (n.id === active.id ? { ...n, pinned: !n.pinned } : n)));
-  };
-
-  const archiveNote = () => {
-    if (!active) return;
-    setNotes((prev) => prev.map((n) => (n.id === active.id ? { ...n, archived: !n.archived } : n)));
-  };
-
-  const duplicateNote = () => {
-    if (!active) return;
-    const now = Date.now();
-    const dup: Note = {
-      ...active, id: now, title: `${active.title} (copy)`,
-      pinned: false, archived: false, createdAt: now, updatedAt: now, updated: 'Just now',
-    };
-    setNotes((prev) => [dup, ...prev]);
-    setSelectedId(dup.id);
-    setDraft({ title: dup.title, body: dup.body, category: dup.category, tags: dup.tags.join(', ') });
-  };
-
-  const exportNotes = () => {
-    const text = exportNotesToFile(notes);
-    downloadText('netkit-notes.json', text, 'application/json');
-  };
-
-  const importNotes = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const text = ev.target?.result as string;
-        const imported = importNotesFromFile(text);
-        if (imported) {
-          setNotes((prev) => [...imported, ...prev]);
-        } else {
-          window.alert('Invalid NETKIT notes file.');
-        }
-      };
-      reader.readAsText(file);
-    };
-    input.click();
-  };
-
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (editing) saveNote();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
-        e.preventDefault();
-        createNote();
-      }
+    if (!editing || !draft.title.trim()) return;
+    setSaveState('Saving…');
+    const timer = window.setTimeout(() => commitDraft(draft, selected), 850);
+    return () => window.clearTimeout(timer);
+  }, [draft, editing, selected]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const commandKey = event.metaKey || event.ctrlKey;
+      if (commandKey && event.key.toLowerCase() === 'n') { event.preventDefault(); startNew(); }
+      else if (commandKey && event.key.toLowerCase() === 's') { event.preventDefault(); commitDraft(); }
+      else if (commandKey && event.shiftKey && event.key.toLowerCase() === 'c' && active) { event.preventDefault(); void navigator.clipboard?.writeText(active.body); setCopiedBlock(-1); window.setTimeout(() => setCopiedBlock(null), 1200); }
+      else if (event.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') { event.preventDefault(); searchRef.current?.focus(); }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [editing, draft, selectedId]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  const startNew = () => { setSelected(null); setDraft({ title: '', body: '', category: 'General', tags: '' }); setEditing(true); setSaveState('Not saved'); };
+  const startEdit = () => { if (active) { setDraft({ title: active.title, body: active.body, category: active.category, tags: active.tags.join(', ') }); setEditing(true); setSaveState('Editing…'); } };
+  const selectNote = (id: number) => { const note = notes.find((item) => item.id === id); if (!note) return; setSelected(id); setDraft({ title: note.title, body: note.body, category: note.category, tags: note.tags.join(', ') }); setEditing(false); };
+  const toggleNote = (key: 'pinned' | 'archived') => { if (!active) return; setNotes((current) => current.map((note) => note.id === active.id ? { ...note, [key]: !note[key], updated: formatNoteTime(Date.now()), updatedAt: Date.now() } : note)); };
+  const duplicate = () => { if (!active) return; const copy = normalizeNote({ ...active, id: Date.now(), title: `${active.title} copy`, pinned: false, archived: false, createdAt: Date.now(), updatedAt: Date.now(), updated: 'Just now' }); setNotes((current) => [copy, ...current]); setSelected(copy.id); setEditing(true); setDraft({ title: copy.title, body: copy.body, category: copy.category, tags: copy.tags.join(', ') }); };
+  const deleteNote = () => { if (!active || !window.confirm(`Delete “${active.title}”? This removes the local note permanently.`)) return; setNotes((current) => current.filter((note) => note.id !== active.id)); setSelected(null); setEditing(false); };
+  const insertFormatting = (before: string, after = '') => {
+    const textarea = bodyRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selection = draft.body.slice(start, end) || 'text';
+    const body = draft.body.slice(0, start) + before + selection + after + draft.body.slice(end);
+    setDraft((current) => ({ ...current, body }));
+    window.setTimeout(() => { textarea.focus(); textarea.setSelectionRange(start + before.length, start + before.length + selection.length); }, 0);
+  };
+  const exportNotes = () => {
+    const blob = new Blob([JSON.stringify(notes, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'netkit-notes.json'; anchor.click(); URL.revokeObjectURL(url);
+  };
+  const importNotes = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (!Array.isArray(parsed)) throw new Error('Expected a note array');
+        const imported = parsed.map((item, index) => normalizeNote(item, index));
+        setNotes((current) => [...imported, ...current.filter((note) => !imported.some((item) => item.id === note.id))]);
+        setSaveState(`Imported ${imported.length} note${imported.length === 1 ? '' : 's'}`);
+      } catch { setSaveState('Import failed · choose a NETKIT JSON export'); }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+  const codeBlocks = active ? Array.from(active.body.matchAll(/```(?:\w+)?\n([\s\S]*?)```/g)).map((match) => match[1].trimEnd()) : [];
 
-  return (
-    <>
-      <PageHeader
-        eyebrow="Workspace / 08"
-        title="Notes"
-        description="Document network work, store command snippets, and keep engineering notes organized."
-        action={
-          <div className="flex gap-1">
-            <Button variant="secondary" onClick={importNotes}>
-              <Upload size={14} /> Import
-            </Button>
-            <Button variant="secondary" onClick={exportNotes}>
-              <Download size={14} /> Export
-            </Button>
-            <Button onClick={createNote}>
-              <Plus size={14} /> New note
-            </Button>
-          </div>
-        }
-      />
-      <div className="grid min-h-[570px] gap-0 overflow-hidden rounded-lg border border-border bg-card lg:grid-cols-[300px_1fr]">
-        <aside className="border-b border-border bg-secondary/20 lg:border-b-0 lg:border-r">
-          <div className="space-y-3 border-b border-border p-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                data-testid="input-notes-search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search notes..."
-                className="h-9 w-full rounded border border-input bg-background/60 pl-8 pr-2 text-xs outline-none focus:border-primary"
-              />
-            </div>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="h-9 w-full rounded border border-input bg-background/60 px-2 text-xs outline-none focus:border-primary"
-            >
-              <option value="All">All categories</option>
-              {noteCategories.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <div className="flex gap-1">
-              <button
-                onClick={() => setShowArchived(false)}
-                className={`flex-1 rounded px-2 py-1.5 text-[11px] font-medium transition ${!showArchived ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-secondary'}`}
-              >
-                Active
-              </button>
-              <button
-                onClick={() => setShowArchived(true)}
-                className={`flex-1 rounded px-2 py-1.5 text-[11px] font-medium transition ${showArchived ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-secondary'}`}
-              >
-                Archive
-              </button>
-            </div>
-          </div>
-          <div className="max-h-[220px] overflow-y-auto p-2 lg:max-h-[500px]">
-            {filteredNotes.map((note) => (
-              <button
-                key={note.id}
-                data-testid={`button-note-${note.id}`}
-                onClick={() => selectNote(note.id)}
-                className={`w-full rounded-md p-3 text-left transition ${selectedId === note.id ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-secondary'}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    {note.pinned && <span className="text-[9px] font-bold tracking-wider text-accent">PINNED</span>}
-                    <span className={`font-mono text-[9px] tracking-wider ${selectedId === note.id ? 'text-primary' : 'text-muted-foreground'}`}>{note.category}</span>
-                  </div>
-                  <span className="font-mono text-[9px] text-muted-foreground/70">{formatNoteTime(note.updatedAt)}</span>
-                </div>
-                <div className="mt-2 truncate text-sm font-semibold">{note.title}</div>
-                <div className="mt-1 truncate text-[11px] text-muted-foreground">{note.body}</div>
-                {note.tags.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {note.tags.slice(0, 3).map((tag) => (
-                      <span key={tag} className="rounded bg-secondary/50 px-1.5 py-0.5 text-[9px] text-muted-foreground">{tag}</span>
-                    ))}
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-          {filteredNotes.length === 0 && (
-            <div className="p-5 text-center text-xs text-muted-foreground">
-              {showArchived ? 'No archived notes.' : 'No notes match that filter.'}
-            </div>
-          )}
-          <div className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-            {filteredNotes.length} notes
-          </div>
-        </aside>
-        <section className="relative">
-          {editing ? (
-            <div className="p-5 md:p-7">
-              <div className="mb-5 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <NotebookTabs size={16} className="text-primary" />
-                  <span className="truncate text-sm font-semibold">{draft.title || 'Untitled'}</span>
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: saveStatus === 'saved' ? 'var(--color-primary)' : saveStatus === 'unsaved' ? 'var(--color-accent)' : 'var(--color-muted-foreground)' }} />
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" className="px-2 py-1.5 text-xs" onClick={pinNote} title={active?.pinned ? 'Unpin' : 'Pin'} disabled={!active}>
-                    <MapPin size={13} />
-                  </Button>
-                  <Button variant="ghost" className="px-2 py-1.5 text-xs" onClick={archiveNote} title={active?.archived ? 'Unarchive' : 'Archive'} disabled={!active}>
-                    <Archive size={13} />
-                  </Button>
-                  <Button variant="ghost" className="px-2 py-1.5 text-xs" onClick={duplicateNote} title="Duplicate" disabled={!active}>
-                    <Copy size={13} />
-                  </Button>
-                  <Button variant="ghost" className="px-2 py-1.5 text-xs text-destructive" onClick={deleteNote} title="Delete" disabled={!active}>
-                    <Trash2 size={13} />
-                  </Button>
-                </div>
-              </div>
-              <div className="mb-4 flex items-center gap-2 border-b border-border">
-                <button
-                  onClick={() => setViewMode('edit')}
-                  className={`border-b-2 px-3 py-2 text-xs font-medium transition ${viewMode === 'edit' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => setViewMode('preview')}
-                  className={`border-b-2 px-3 py-2 text-xs font-medium transition ${viewMode === 'preview' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                >
-                  Preview
-                </button>
-                <div className="flex-1" />
-                <Button variant="primary" className="px-3 py-1.5 text-xs" onClick={saveNote}>
-                  <Check size={13} /> Save
-                </Button>
-              </div>
-              {viewMode === 'edit' ? (
-                <div className="space-y-4">
-                  <input
-                    data-testid="input-note-title"
-                    value={draft.title}
-                    onChange={(e) => { setDraft((p) => ({ ...p, title: e.target.value })); setSaveStatus('unsaved'); }}
-                    placeholder="Note title"
-                    className="w-full border-none bg-transparent text-lg font-semibold outline-none placeholder:text-muted-foreground/50"
-                  />
-                  <div className="flex gap-3">
-                    <label className="flex-1">
-                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Category</span>
-                      <select
-                        value={draft.category}
-                        onChange={(e) => { setDraft((p) => ({ ...p, category: e.target.value })); setSaveStatus('unsaved'); }}
-                        className="h-9 w-full rounded border border-input bg-background/60 px-2 text-xs outline-none focus:border-primary"
-                      >
-                        {noteCategories.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="flex-1">
-                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Tags (comma-separated)</span>
-                      <input
-                        value={draft.tags}
-                        onChange={(e) => { setDraft((p) => ({ ...p, tags: e.target.value })); setSaveStatus('unsaved'); }}
-                        placeholder="ospf, lab, verified"
-                        className="h-9 w-full rounded border border-input bg-background/60 px-2 text-xs outline-none focus:border-primary"
-                      />
-                    </label>
-                  </div>
-                  <textarea
-                    data-testid="input-note-body"
-                    value={draft.body}
-                    onChange={(e) => { setDraft((p) => ({ ...p, body: e.target.value })); setSaveStatus('unsaved'); }}
-                    placeholder="Write your note here... (Markdown supported)"
-                    className="min-h-[400px] w-full resize-y rounded border border-input bg-background/60 p-3 font-mono text-sm outline-none focus:border-primary"
-                  />
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <h1 className="text-lg font-semibold">{draft.title || 'Untitled'}</h1>
-                  <div className="flex gap-2">
-                    <span className="rounded bg-secondary/50 px-2 py-1 text-[10px] text-muted-foreground">{draft.category}</span>
-                    {draft.tags.split(',').filter(Boolean).map((tag) => (
-                      <span key={tag} className="rounded bg-secondary/50 px-2 py-1 text-[10px] text-muted-foreground">{tag.trim()}</span>
-                    ))}
-                  </div>
-                  <div
-                    className="prose prose-invert max-w-none text-sm leading-relaxed text-foreground"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(draft.body) }}
-                  />
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <NotebookTabs size={32} className="mb-3 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">Select a note or create a new one</p>
-              <p className="mt-1 text-[11px] text-muted-foreground/60">Press Ctrl+N to create a new note</p>
-            </div>
-          )}
-        </section>
-      </div>
-    </>
-  );
+  return <><PageHeader eyebrow="Workspace / 07" title="Notes" description="Capture designs, caveats, commands, and handoff details. Notes are formatted and stored only in this browser." action={<div className="flex gap-2"><input ref={importRef} type="file" accept="application/json" onChange={importNotes} className="hidden" /><Button variant="secondary" onClick={exportNotes} data-testid="button-export-notes"><Download size={14} /> Export</Button><Button variant="secondary" onClick={() => importRef.current?.click()} data-testid="button-import-notes"><Upload size={14} /> Import</Button><Button onClick={startNew} data-testid="button-new-note"><Plus size={15} /> New note</Button></div>} />
+    <div className="grid min-h-[650px] gap-0 overflow-hidden rounded-lg border border-border bg-card lg:grid-cols-[320px_1fr]">
+      <aside className="border-b border-border bg-secondary/15 lg:border-b-0 lg:border-r">
+        <div className="border-b border-border p-3"><div className="relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input ref={searchRef} data-testid="input-notes-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes…  /" className="h-9 w-full rounded border border-input bg-background/60 pl-8 pr-2 text-xs outline-none focus:border-primary" /></div><div className="mt-2 grid grid-cols-2 gap-2"><select aria-label="Filter note category" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="h-8 min-w-0 rounded border border-input bg-background/60 px-2 text-[10px] outline-none focus:border-primary"><option>All categories</option>{noteCategories.map((item) => <option key={item}>{item}</option>)}</select><select aria-label="Filter note tag" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} className="h-8 min-w-0 rounded border border-input bg-background/60 px-2 text-[10px] outline-none focus:border-primary"><option>All tags</option>{tags.map((item) => <option key={item}>{item}</option>)}</select></div><div className="mt-2 flex gap-1 overflow-x-auto">{[['all', 'All'], ['pinned', 'Pinned'], ['recent', 'Recent'], ['archived', 'Archived']].map(([value, label]) => <button type="button" key={value} onClick={() => setViewFilter(value as typeof viewFilter)} className={`whitespace-nowrap rounded px-2 py-1 font-mono text-[9px] ${viewFilter === value ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-secondary'}`}>{label}</button>)}</div></div>
+        <div className="max-h-[420px] overflow-y-auto p-2 lg:max-h-[560px]">{filtered.map((note) => <button key={note.id} data-testid={`button-note-${note.id}`} onClick={() => selectNote(note.id)} className={`w-full rounded-md p-3 text-left transition ${selected === note.id ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-secondary'}`}><div className="flex items-center justify-between gap-2"><span className="truncate font-mono text-[9px] tracking-wider text-primary">{note.category.toUpperCase()}{note.pinned && ' · PINNED'}</span><span className="shrink-0 font-mono text-[9px] text-muted-foreground/70">{formatNoteTime(note.updatedAt)}</span></div><div className="mt-2 truncate text-sm font-semibold">{note.title}</div><div className="mt-1 truncate text-[11px] text-muted-foreground">{note.body.replace(/[#*`]/g, '')}</div><div className="mt-2 flex gap-1">{note.tags.slice(0, 2).map((tag) => <span key={tag} className="rounded border border-border px-1.5 py-0.5 font-mono text-[8px] text-muted-foreground">{tag}</span>)}</div></button>)}</div>
+        {filtered.length === 0 && <div className="p-6 text-center text-xs text-muted-foreground">No notes match these filters.<br /><button type="button" onClick={startNew} className="mt-2 text-primary hover:underline">Create one now</button></div>}
+        <div className="border-t border-border p-3 font-mono text-[9px] text-muted-foreground">{notes.length} total · {notes.filter((note) => note.pinned).length} pinned · {notes.filter((note) => note.archived).length} archived</div>
+      </aside>
+      <section className="relative min-w-0">
+        {editing ? <div className="p-5 md:p-7"><div className="mb-5 flex items-start justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-wider text-primary">{selected ? 'Edit note' : 'New note'}</div><h2 className="mt-1 text-lg font-semibold">{selected ? 'Update this note' : 'Capture a detail'}</h2></div><div className="flex items-center gap-2"><span className="font-mono text-[10px] text-muted-foreground">{saveState}</span><Button variant="ghost" onClick={() => setEditing(false)}><X size={16} /></Button></div></div><div className="space-y-4"><Field label="Title" value={draft.title} onChange={(value) => setDraft((current) => ({ ...current, title: value }))} placeholder="A useful heading" /><div className="grid gap-3 sm:grid-cols-[1fr_180px]"><label className="block"><span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Category</span><select value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))} className="h-10 w-full rounded-md border border-input bg-background/70 px-3 text-sm outline-none focus:border-primary">{noteCategories.map((item) => <option key={item}>{item}</option>)}</select></label><Field label="Tags" value={draft.tags} onChange={(value) => setDraft((current) => ({ ...current, tags: value }))} placeholder="ospf, change-window" /></div><div className="overflow-hidden rounded-md border border-input bg-background/70"><div className="flex flex-wrap items-center gap-1 border-b border-input bg-secondary/30 p-2"><button type="button" onClick={() => insertFormatting('# ', '')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">H1</button><button type="button" onClick={() => insertFormatting('**', '**')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">Bold</button><button type="button" onClick={() => insertFormatting('*', '*')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">Italic</button><button type="button" onClick={() => insertFormatting('- ', '')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">List</button><button type="button" onClick={() => insertFormatting('- [ ] ', '')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">Checklist</button><button type="button" onClick={() => insertFormatting('`', '`')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">Code</button><button type="button" onClick={() => insertFormatting('```\n', '\n```')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">Code block</button><button type="button" onClick={() => insertFormatting('| Column | Value |\n| --- | --- |\n| ', ' |  |')} className="rounded px-2 py-1 font-mono text-[10px] hover:bg-secondary">Table</button></div><textarea ref={bodyRef} data-testid="input-note-body" value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="Write a design decision, command, caveat, or next step…" className="min-h-[300px] w-full resize-y bg-transparent p-3 text-sm leading-7 outline-none" /></div><div className="flex flex-wrap items-center gap-2 pt-1"><Button onClick={() => { commitDraft(); setEditing(false); }} data-testid="button-save-note"><Check size={15} /> Save note</Button><Button variant="secondary" onClick={() => setEditing(false)}>Done editing</Button><span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl/Cmd + S saves · edits autosave</span></div></div></div> : active ? <div className="p-5 md:p-7"><div className="mb-6 flex flex-wrap items-start justify-between gap-4"><div><div className="mb-3 flex flex-wrap items-center gap-2"><span className="rounded border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary">{active.category}</span>{active.tags.map((tag) => <span key={tag} className="rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground">{tag}</span>)}<span className="font-mono text-[10px] text-muted-foreground">{formatNoteTime(active.updatedAt)}</span></div><h2 className="text-xl font-semibold">{active.title}</h2></div><div className="flex gap-1"><Button variant="ghost" onClick={() => toggleNote('pinned')}><MapPin size={15} className={active.pinned ? 'text-primary' : ''} /></Button><Button variant="ghost" onClick={() => toggleNote('archived')}><FileText size={15} className={active.archived ? 'text-primary' : ''} /></Button><Button variant="ghost" onClick={duplicate}><Plus size={15} /></Button><Button variant="ghost" onClick={startEdit} data-testid="button-edit-note"><Pencil size={15} /></Button><Button variant="ghost" onClick={deleteNote} data-testid="button-delete-note"><Trash2 size={15} className="text-destructive" /></Button></div></div><div className="max-w-3xl whitespace-pre-wrap text-sm leading-8 text-muted-foreground">{active.body || <span className="italic">This note is empty. Edit it to add details.</span>}</div>{codeBlocks.length > 0 && <div className="mt-6 space-y-2"><div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Code blocks</div>{codeBlocks.map((block, index) => <div key={index} className="overflow-hidden rounded border border-border bg-[#0a0e14]"><div className="flex items-center justify-between border-b border-border px-3 py-2 font-mono text-[9px] text-muted-foreground">LOCAL SNIPPET <button type="button" onClick={() => { void navigator.clipboard?.writeText(block); setCopiedBlock(index); window.setTimeout(() => setCopiedBlock(null), 1200); }} className="text-primary hover:underline">{copiedBlock === index ? 'Copied' : 'Copy'}</button></div><pre className="overflow-x-auto p-3 text-xs leading-6 text-slate-300">{block}</pre></div>)}</div>}<div className="mt-10 flex items-center justify-between border-t border-border pt-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"><span>Stored in this browser · no sync</span><span>Ctrl/Cmd + Shift + C copies note</span></div></div> : <EmptyState icon={NotebookTabs} title="Select a note or start fresh" text="Your notes are local by design. Nothing leaves this workspace." />}
+      </section>
+    </div>
+  </>;
 }
+
 function ExportPage() {
   const [format, setFormat] = useState('markdown');
   const [copied, setCopied] = useState(false);
@@ -1738,6 +1470,7 @@ function SettingsPage() {
 
   const chooseTheme = (next: Theme) => {
     setTheme(next);
+    applyThemeToDocument(next);
     setThemePreference(next);
     setStatus(`${next === 'dark' ? 'Dark' : 'Light'} mode enabled.`);
   };

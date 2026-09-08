@@ -5,15 +5,15 @@ import { defineConfig } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
+// Replit supplies PORT and BASE_PATH for its routed preview. Vercel builds
+// use the safe root defaults below and do not need either variable configured.
 const rawPort = process.env.PORT ?? '5173';
-
 const port = Number(rawPort);
+const basePath = process.env.BASE_PATH ?? '/';
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
-
-const basePath = process.env.BASE_PATH ?? '/';
 
 export default defineConfig({
   base: basePath,
