@@ -3,8 +3,8 @@ name: NETKIT build environment
 description: Environment-specific requirements for manually validating the NETKIT web artifact.
 ---
 
-Manual Vite validation for NETKIT requires both `PORT` and `BASE_PATH`; the managed workflow supplies them automatically, while direct build commands do not.
+NETKIT's Vite config defaults to `PORT=5173` and `BASE_PATH=/` for generic hosts such as Vercel; Replit's managed workflow overrides them with its routed preview values.
 
-**Why:** The artifact's Vite config intentionally fails fast when either routing or port configuration is missing.
+**Why:** One build must work both inside Replit's artifact router and as a root-hosted static SPA on Vercel.
 
-**How to apply:** Use a command such as `PORT=19465 BASE_PATH=/netkit pnpm --filter @workspace/netkit run build` for local production-build verification.
+**How to apply:** Use `pnpm run typecheck:netkit && pnpm run build:netkit` for host-independent validation; set `PORT` and `BASE_PATH` only when reproducing the Replit preview.
